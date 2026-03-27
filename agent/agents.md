@@ -1,258 +1,154 @@
-# 개발 에이전트 정의
+# 에이전트 정의 (excel_search 프로젝트)
 
-> 작성일: 2026-03-27
-> 최종 업데이트: 2026-03-27 (spec002 반영)
-
----
-
-## 에이전트 실행 흐름
-
+## 실행 흐름
 ```
-Plan Agent
-  → Agent 2 (config.py)       → Explore Agent (검증)
-  → Agent 3 (indexer.py)      → Explore Agent (검증)
-  → Agent 4 (searcher.py)     → Explore Agent (검증)
-  → Agent 5 (app.py)          → Explore Agent (검증)
-  → 최종 통합 테스트
+Plan → Agent2(config) → Agent3(indexer) → Agent4(searcher) → Agent5(app)
+각 단계 완료 후 → Explore(검증)
 ```
-
----
 
 ## 모듈-에이전트 매핑
 
-| 모듈 | 담당 에이전트 | 핵심 구현 포인트 |
-|------|--------------|-----------------|
-| `config.py` | Agent 2 | config.txt 파싱/저장, pathlib 경로 처리 |
-| `indexer.py` | Agent 3 | 대용량 인덱싱, WAL 모드, 변경 감지, 메모리 관리 |
-| `searcher.py` | Agent 4 | FTS5 검색, LIKE fallback, 중복 결과 전체 반환 |
-| `app.py` | Agent 5 | HTML 테이블 렌더링, 파일 열기(open_file), st.columns 혼합 렌더링 |
+| 에이전트 | 타입 | 모듈 | 단계 | 핵심 포인트 |
+|----------|------|------|------|-------------|
+| Agent1 | Plan | spec 작성 | 0 | DB스키마·함수시그니처·엣지케이스·의존성 |
+| Agent2 | general-purpose | config.py | 1 | config.txt 파싱/저장, pathlib, 기본값 반환 |
+| Agent3 | general-purpose | indexer.py | 2 | WAL모드, executemany, gc.collect, header=2 |
+| Agent4 | general-purpose | searcher.py | 3 | FTS5+LIKE fallback, GROUP BY, 중복 전체반환 |
+| Agent5 | general-purpose | app.py | 4 | HTML테이블, open_file, st.columns 혼합렌더링 |
+| Agent6 | Explore | 검증 | 각단계후 | 명세일치·엣지케이스·인터페이스호환 |
 
 ---
 
-## Agent 1 — Plan (설계 에이전트)
+## Agent1 — Plan
+명세서 작성: DB스키마 / 함수시그니처 / UI구성 / 엣지케이스 / 의존성
+→ 파일명: `spec001.md`, 수정 시 번호 증가
 
-**타입:** `Plan`
-
-**역할:** 개발 시작 전 상세 기술 명세서 작성
-
-**담당 작업:**
-- DB 스키마 설계 (테이블 구조, 인덱스)
-- 모듈 간 인터페이스 정의 (함수 시그니처, 데이터 흐름)
-- 엣지 케이스 사전 정의
-- 의존성 목록 작성
-
-**사용 시점:** 개발 시작 전 1회
-
-**프롬프트 템플릿:**
+**프롬프트:**
 ```
-아래 요구사항을 바탕으로 [프로그램명]의 상세 기술 명세서를 작성해줘.
-
-## 요구사항
-[요구사항 내용]
-
-## 프로젝트 구조
-[폴더 구조]
-
-## 작성 항목
-1. DB 스키마 (테이블, 인덱스)
-2. 각 모듈 함수 명세 (시그니처, 역할, 처리 로직)
-3. UI 구성 및 이벤트 핸들러
-4. 엣지 케이스 처리 방안
-5. 의존성 목록
-
-실제 개발자가 바로 구현할 수 있을 정도로 구체적으로 작성해줘.
+[요구사항]과 [프로젝트구조]를 바탕으로 [프로그램명] 상세 기술 명세서 작성.
+항목: DB스키마(테이블·인덱스) / 모듈별 함수명세(시그니처·로직) / UI·이벤트 / 엣지케이스 / 의존성
+실제 개발자가 바로 구현 가능한 수준으로.
 ```
 
 ---
 
-## Agent 2 — General-purpose (설정 & 유틸리티 모듈 개발 에이전트)
+## Agent2 — config.py
+- `load_config` / `save_config` 구현
+- `#` 주석 처리, KEY=VALUE 파싱, `EXCLUDE_FILES` 리스트
+- 파일 미존재 시 기본값 반환 (예외 금지)
 
-**타입:** `general-purpose`
+---
 
-**역할:** config.py 및 일반 유틸리티 모듈 구현
+## Agent3 — indexer.py
+- SQLite 스키마 초기화 + FTS5 트리거
+- `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`
+- `executemany` 배치 INSERT, `del df; gc.collect()` 필수
+- `~$` 임시파일 제외, `header=2` 고정
 
-**담당 모듈:** `config.py`
+---
 
-**담당 작업:**
-- `config.txt` 파싱 및 저장 로직 구현 (`load_config`, `save_config`)
-- `#` 주석 처리, KEY=VALUE 파싱
-- `EXCLUDE_FILES` 리스트 파싱/직렬화
-- 그 외 일반 목적의 유틸리티 모듈 구현
+## Agent4 — searcher.py
+- `search_exact`: `WHERE cell_value=:q`, GROUP BY file_id·sheet_name·col_index
+- `search_partial`: FTS5 → LIKE fallback
+- FTS5 특수문자 이스케이프, 빈 쿼리 early return
+- 동일 값 N개 파일 → N행 전부 반환 (limit 내)
 
-**특이사항:**
-- 파일 경로는 `pathlib.Path`로 처리
-- config.txt 미존재 시 기본값 반환 (예외 발생 금지)
+---
 
-**사용 시점:** 1단계 개발
+## Agent5 — app.py
+- `st.markdown(html, unsafe_allow_html=True)` HTML 테이블 렌더링
+- 각 결과행: `st.columns([3,2,2,1,1])` = 파일명|시트|컬럼|매칭수|[열기]
+- `open_file()`: win=`os.startfile` / mac=`open` / linux=`xdg-open`
+- 결과 50건↑: `st.expander()` 분할
+- 요약: "총 N건 (M개 파일에서 발견)"
 
-**프롬프트 템플릿:**
+**체크리스트:**
+- [ ] 사이드바: 폴더경로·제외파일 설정/저장
+- [ ] 검색UI: 입력·모드선택·결과제한·인덱스업데이트
+- [ ] HTML테이블 + 열기버튼 혼합렌더링
+- [ ] expander: 컬럼 전체데이터 (검색어 bold강조)
+- [ ] CSV 내보내기 (utf-8-sig)
+
+---
+
+## Agent6 — Explore (검증)
+**공통:** 명세함수 전부 구현 여부 / 시그니처 일치 / 엣지케이스 / 인터페이스 호환 / 잠재버그
+
+**app.py 추가:** HTML렌더링 정상 / open_file 호출 / st.columns 정렬 / expander 50건분할 / 파일없음 st.error / 요약 정확성
+
+**프롬프트:**
 ```
-아래 명세서를 기반으로 [파일명]을 구현해줘.
-
-## 명세서
-[해당 모듈의 명세 내용]
-
-## 조건
-- 경로: [파일 경로]
-- Python [버전] 이상
-- 의존성: [라이브러리 목록]
-- 다른 모듈과의 인터페이스: [연결 방식]
-
-명세서에 정의된 함수를 모두 구현하고, 핵심 로직에는 간단한 주석을 달아줘.
-```
-
----
-
-## Agent 3 — General-purpose (DB/인덱서 개발 에이전트)
-
-**타입:** `general-purpose`
-
-**역할:** 데이터 저장/인덱싱 관련 모듈 구현 특화
-
-**담당 모듈:** `indexer.py`
-
-**담당 작업:**
-- SQLite 스키마 초기화 및 마이그레이션
-- 대용량 데이터 파싱 및 인덱싱 (배치 처리, 메모리 관리)
-- 변경 감지 및 증분 업데이트 로직
-- FTS5 트리거 설정
-
-**특이사항:**
-- `executemany`를 활용한 배치 INSERT 필수
-- 처리 후 `del df; gc.collect()` 메모리 해제 필수
-- `PRAGMA journal_mode = WAL` 설정 필수 (인덱싱 중 검색 동시 허용)
-- `~$` 임시 파일 및 `exclude_files` 제외 처리 필수
-- `header=2` 고정 (3번째 행이 헤더)
-
-**사용 시점:** 2단계 개발
-
----
-
-## Agent 4 — General-purpose (검색 엔진 개발 에이전트)
-
-**타입:** `general-purpose`
-
-**역할:** 검색 쿼리 로직 구현 특화
-
-**담당 모듈:** `searcher.py`
-
-**담당 작업:**
-- 정확/부분 일치 검색 쿼리 구현
-- FTS5 활용 및 LIKE fallback 처리
-- 결과 데이터 클래스(`SearchResult`) 설계 및 반환
-- 중복 결과 전체 반환 (첫 번째 매칭에서 중단 금지)
-
-**특이사항:**
-- FTS5 특수문자 이스케이프 처리 필수
-- `GROUP BY file_id, sheet_name, col_index` 로 컬럼 단위 집계
-- 동일 값이 N개 파일에 있으면 N개 행 모두 반환 (limit 내에서)
-- 빈 쿼리 early return 처리
-
-**사용 시점:** 3단계 개발
-
----
-
-## Agent 5 — General-purpose (UI 개발 에이전트)
-
-**타입:** `general-purpose`
-
-**역할:** Streamlit UI 구현 특화
-
-**담당 모듈:** `app.py`
-
-**담당 작업:**
-- UI 레이아웃 및 컴포넌트 구현
-- 백엔드 모듈 연결 (config, indexer, searcher)
-- 사용자 입력 검증 및 에러 안내
-- **HTML 테이블 렌더링**: `st.markdown(html, unsafe_allow_html=True)` 활용
-- **파일 열기 기능**: `open_file()` 함수 구현 및 버튼 이벤트 연결
-- **st.columns 혼합 렌더링**: 각 결과 행 = HTML 셀 + Streamlit 버튼
-
-**Streamlit 특이사항:**
-- `st.session_state`로 상태 관리
-- 인덱싱은 별도 스레드 처리 (`threading.Thread`)
-- HTML 테이블은 홀짝 행 배경색 교차 스타일링
-- 결과 50건 이상 시 `st.expander()`로 분할하여 렌더링 성능 확보
-- 파일 열기: Windows `os.startfile()` / macOS `subprocess.Popen(["open", ...])` / Linux `subprocess.Popen(["xdg-open", ...])`
-
-**구현 체크리스트:**
-- [ ] config.txt 로드/저장 UI (사이드바)
-- [ ] 검색 UI: 입력 박스, 정확/부분 모드 선택, 결과 제한 설정
-- [ ] 인덱스 업데이트 버튼 + 진행률 표시
-- [ ] HTML 테이블 렌더링 (스타일링 포함)
-- [ ] 파일 열기 버튼 + `open_file()` 함수 (플랫폼별 구현)
-- [ ] st.columns 혼합 렌더링 (파일명 | 시트명 | 컬럼명 | 매칭수 | [열기])
-- [ ] 결과 상단 요약: "총 N건 (M개 파일에서 발견)"
-- [ ] Expander로 컬럼 전체 데이터 표시 (검색어 bold 강조)
-- [ ] CSV 내보내기 버튼 (`st.download_button`)
-
-**사용 시점:** 4단계 개발
-
----
-
-## Agent 6 — Explore (테스트 & 검증 에이전트)
-
-**타입:** `Explore`
-
-**역할:** 각 개발 단계 완료 후 코드 검증
-
-**담당 작업:**
-- 구현된 코드가 명세서와 일치하는지 검토
-- 버그 및 누락된 엣지 케이스 탐지
-- 모듈 간 인터페이스 호환성 확인
-
-**검증 체크리스트 (모듈 공통):**
-1. 명세서에 정의된 모든 함수가 구현되었는가?
-2. 함수 시그니처가 명세서와 일치하는가?
-3. 엣지 케이스가 처리되었는가?
-4. 모듈 간 인터페이스가 호환되는가?
-5. 잠재적 버그가 있는가?
-
-**검증 체크리스트 (app.py 통합 시 추가):**
-6. HTML 테이블 렌더링 여부 및 스타일 정상 표시
-7. 파일 열기 버튼 클릭 → `open_file()` 정상 호출
-8. st.columns 혼합 렌더링에서 정렬/간격 일관성
-9. 결과 50건 초과 시 expander 분할 동작
-10. 파일 없음/권한 오류 예외 처리 (`st.error` 표시)
-11. 결과 요약 "총 N건 (M개 파일에서 발견)" 정확성
-
-**사용 시점:** 각 모듈 개발 완료 후
-
-**프롬프트 템플릿:**
-```
-아래 명세서와 구현된 코드를 비교 검토해줘.
-
-## 명세서
-[해당 모듈 명세]
-
-## 구현된 파일
-[파일 경로]
-
-## 검토 항목
-1. 명세서에 정의된 모든 함수가 구현되었는가?
-2. 함수 시그니처가 명세서와 일치하는가?
-3. 엣지 케이스가 처리되었는가?
-4. 모듈 간 인터페이스가 호환되는가?
-5. 잠재적 버그가 있는가?
-
-문제점을 발견하면 구체적으로 어떻게 수정해야 하는지 알려줘.
+[명세서]와 [구현파일]을 비교 검토. 위 검증항목 기준으로 문제점과 수정방법 구체적으로.
 ```
 
 ---
 
 ## 재사용 가이드
+1. Plan → spec001.md 저장
+2. 수정 시 spec번호 증가 (버전이력 유지)
+3. 모듈 유형별 에이전트 선택 (표 참조)
+4. 각 모듈 완료 후 Explore 검증
 
-새 프로젝트에서 이 에이전트들을 사용할 때:
+---
 
-1. **Plan Agent**로 명세서 작성 (spec001.md 로 저장)
-2. 명세서 수정 시 spec002.md, spec003.md ... 순번 증가
-3. 모듈별로 **개발 Agent** (2~5 중 적합한 것) 선택하여 구현
-4. 각 모듈 완료 후 **Explore Agent**로 검증
-5. 최종 통합 후 전체 **Explore Agent** 검증
+# 에이전트 정의 (excel_analyze 프로젝트)
 
-에이전트 타입 선택 기준:
-- 설정/유틸리티 모듈 → Agent 2
-- DB/파일 I/O 중심 → Agent 3
-- 쿼리/검색 로직 중심 → Agent 4
-- UI/이벤트 중심 → Agent 5
-- 그 외 일반 모듈 → Agent 2
+## 실행 흐름
+```
+Plan → Agent-P(parser.py) → Agent2(categories.yaml) → Agent5(app.py)
+각 단계 완료 후 → Explore(검증)
+```
+
+## 모듈-에이전트 매핑
+
+| 에이전트 | 타입 | 모듈 | 단계 | 핵심 포인트 |
+|----------|------|------|------|-------------|
+| Agent1 | Plan | spec 작성 | 0 | 데이터모델·함수시그니처·엣지케이스·의존성 |
+| Agent-P | general-purpose | parser.py | 1 | Row1~3파싱, FK추출(ref_패턴), GraphData생성 |
+| Agent2 | general-purpose | categories.yaml | 2 | YAML 카테고리·색상 설정, 파일분류 |
+| Agent5 | general-purpose | app.py | 3 | pyvis 네트워크그래프, 카테고리필터, 툴팁 |
+| Agent6 | Explore | 검증 | 각단계후 | 명세일치·FK추출정확성·그래프렌더링 |
+
+---
+
+## Agent-P — parser.py (신규, excel_analyze 전용)
+
+**타입:** `general-purpose`
+
+**역할:** Excel Row1~3 파싱으로 테이블 스키마 + FK 관계 추출 → GraphData 생성
+
+**Excel 파일 규칙 (필수 숙지):**
+- Row1: 컬럼 설명/주석 (한국어)
+- Row2: JSON 익스포트 경로 (`sheet_name/^0/` 형태)
+- Row3: 컬럼 헤더 (`^key`/`^id`=PK, `#`=주석, `$`=필터, `ref_X_id/key`=FK)
+- Row4~: 데이터 (파싱 불필요)
+- `~$` 임시파일 제외
+
+**FK 추출 규칙:**
+- 패턴: `ref_(.+?)_(id|key|type)$` → 캡처그룹1이 target table
+- 복수형 처리: `cookie` → `cookies`, `item` → `items` (s 붙여서 매칭 재시도)
+- target이 실제 파일에 없으면 edge 생성 안 함 (dangling ref 무시)
+
+**함수 목록:**
+- `load_categories(yaml_path) -> dict[str, CategoryInfo]`
+- `parse_excel_folder(folder_path, categories) -> GraphData`
+- `parse_file(file_path, category) -> list[TableNode]`
+- `extract_columns(ws) -> list[ColumnInfo]`
+- `extract_edges(nodes, all_table_names) -> list[GraphEdge]`
+
+**특이사항:**
+- 멀티시트 파일: 시트별로 별도 TableNode 생성 (`#`으로 시작하는 시트명 제외)
+- openpyxl `read_only=True, data_only=True` 사용 (성능)
+- 파싱 실패 파일은 skip + 경고 로그 (crash 금지)
+
+---
+
+## Agent5 확장 — app.py (excel_analyze용 추가 사항)
+
+기존 Agent5에 추가:
+- `pyvis.Network` → HTML 생성 → `st.components.v1.html(html, height=700)`
+- 노드: label=table_name, color=카테고리색상, size=10+(FK수×3), title=컬럼목록(tooltip)
+- 엣지: arrows="to", label=FK컬럼명, title=source→target 설명
+- physics: `barnes_hut` (초기), 사이드바에서 토글 가능
+- 사이드바: 카테고리별 체크박스 필터, "아웃게임만" 토글
+- pyvis 클릭 이벤트는 미지원 → hover tooltip으로 컬럼 상세 표시

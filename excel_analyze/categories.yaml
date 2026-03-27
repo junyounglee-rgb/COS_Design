@@ -1,0 +1,214 @@
+excel_folder: D:\COS_Project\cos-data\excel
+exclude_files:
+- ai_infos
+- camera_shakes
+- cameras
+- community_urls
+- damage_fonts
+- errors
+- game_config
+- hit_fx_sockets
+- keywords
+- minimap_configs
+- miya_dialogs
+- mode_tool_tips
+- nicknames
+- observes
+- parabola_guides
+- portraits
+- string_keywords
+- town_config
+- translations_en
+- translations_id
+- translations_ja
+- translations_ko
+- translations_th
+- translations_vi
+- translations_zh_hant
+- ui_sounds
+- ui_strings
+- virtual_pads
+- voices
+- win_lose_poss
+- word_filters
+categories:
+  아웃게임_경제상점:
+    color: '#E74C3C'
+    visible: true
+    files:
+    - items
+    - item_boxes
+    - item_groups
+    - item_random_pools
+    - shop
+    - gacha_shops
+    - product
+    - inventory
+    - drop_infos
+  아웃게임_이벤트:
+    color: '#E67E22'
+    visible: true
+    files:
+    - event_infos
+    - attendance_events
+    - daily_fortune_events
+    - invitation_events
+    - nday_mission_events
+    - step_mission_events
+    - quest_gacha_events
+    - pve_events
+    - vault_mission_events
+  아웃게임_퀘스트미션:
+    color: '#F1C40F'
+    visible: true
+    files:
+    - quests
+    - cookie_masteries
+    - achievements
+  아웃게임_소셜:
+    color: '#2ECC71'
+    visible: true
+    files:
+    - social
+    - nicknames
+    - mail
+    - word_filters
+    - community_urls
+    - dialog_groups
+  아웃게임_UI시스템:
+    color: '#1ABC9C'
+    visible: true
+    files:
+    - lobby_buttons
+    - shortcuts
+    - setting_menus
+    - settings
+    - screen_infos
+    - contents_info
+    - contents_unlocks
+    - game_config
+    - errors
+    - rolling_banners
+    - haptics
+    - mode_tool_tips
+    - themes
+    - tutorials
+    - ui_sounds
+  아웃게임_번역:
+    color: '#3498DB'
+    visible: false
+    files:
+    - translations_ko
+    - translations_en
+    - translations_ja
+    - translations_zh_hant
+    - translations_id
+    - translations_th
+    - translations_vi
+    - string_keywords
+    - keywords
+    - ui_strings
+  아웃게임_로비타운:
+    color: '#9B59B6'
+    visible: true
+    files:
+    - town_config
+    - town_items
+    - town_npc_infos
+    - thumbnails
+    - portraits
+    - profile_items
+    - miya_dialogs
+  아웃게임_모드맵:
+    color: '#16A085'
+    visible: true
+    files:
+    - modes
+    - maps
+    - matching_rules
+    - jelly_race_modes
+    - pve_round_modes
+    - bounty_modes
+    - escort_modes
+    - castle_break_modes
+    - death_match_modes
+    - battle_royal_modes
+    - battle_roads
+    - gnome_battle_modes
+    - drop_the_beat_modes
+    - smash_levels
+    - smash_pass
+    - play_block_rules
+    - relays
+  아웃게임_잠금조건:
+    color: '#8E44AD'
+    visible: true
+    files:
+    - unlock_conditions
+    - contents_unlocks
+  아웃게임_랭킹:
+    color: '#D35400'
+    visible: true
+    files:
+    - ovencrown
+  인게임_캐릭터:
+    color: '#95A5A6'
+    visible: false
+    files:
+    - cookies
+    - costumes
+    - cookie_ranks
+    - cookie_voices
+    - cookie_npc_infos
+    - expressions
+    - highlights
+    - cookie_bot
+    - mvps
+    - power_sands
+    - voices
+  인게임_전투:
+    color: '#7F8C8D'
+    visible: false
+    files:
+    - skill_infos
+    - skill_charges
+    - skill_area_of_effects
+    - skill_basic_gauges
+    - skill_collision_infos
+    - skill_custom_fxs
+    - skill_explosions
+    - skill_projectiles
+    - skill_summons
+    - skill_tags
+    - skill_tether_beams
+    - status_effect_infos
+    - status_effect_values
+    - stats_infos
+    - buff_cards
+    - ai_infos
+    - damage_fonts
+    - camera_shakes
+    - cameras
+    - hit_fx_sockets
+    - screen_effects
+    - battle_boxes
+    - battle_card
+    - battle_points
+    - kill_feeds
+    - observes
+    - parabola_guides
+    - system_buffs
+    - action_objects
+    - fog_zone_areas
+    - ingame_exps
+    - interaction_infos
+    - minimap_configs
+    - npc_infos
+    - pattern_items
+    - spots
+    - virtual_pads
+    - win_lose_poss
+  미분류:
+    color: '#BDC3C7'
+    visible: false
+    files: []
