@@ -1,0 +1,28 @@
+# 인덱스 DB (자동 생성)
+excel_search/index.db
+excel_search/index.db-shm
+excel_search/index.db-wal
+
+# 사용자 설정 파일 (로컬 경로 포함)
+excel_search/config.txt
+
+# Python 가상환경
+excel_search/.venv/
+.venv/
+
+# Python 캐시
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# 환경변수 / 토큰
+.env
+*.env
+secrets.*
+
+# Claude Code 로컬 설정 (로컬 경로 포함)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
