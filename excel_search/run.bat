@@ -49,10 +49,13 @@ if not defined UV_EXE (
 REM -- Step 2: Setup Python environment --
 if not exist ".venv\Scripts\python.exe" (
     echo  [2/3] Setting up Python environment... (first time only)
-    "%UV_EXE%" venv .venv --quiet 2>nul
+    echo        Downloading Python if needed, please wait...
+    "%UV_EXE%" python install 3.12 >nul 2>&1
+    "%UV_EXE%" venv .venv --python 3.12
     if %errorlevel% neq 0 (
         echo.
         echo  [ERROR] Failed to create Python environment.
+        echo          Check internet connection and try again.
         echo.
         pause
         exit /b 1
