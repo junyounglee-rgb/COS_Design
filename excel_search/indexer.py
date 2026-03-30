@@ -151,11 +151,34 @@ def get_indexed_files(conn: sqlite3.Connection) -> dict[str, tuple[int, float]]:
 # 단일 파일 인덱싱
 # ---------------------------------------------------------------------------
 
+def _detect_header_row(df_raw: pd.DataFrame) -> int:
+    """
+    첫 3행 중 헤더 행 인덱스를 감지한다.
+    판단 기준: 비어있지 않은 셀 중 숫자 비율이 50% 미만인 첫 번째 행.
+    해당하는 행이 없으면 기본값 2(3번째 행) 반환.
+    """
+    for i in range(min(3, len(df_raw))):
+        row_vals = [
+            str(v).strip()
+            for v in df_raw.iloc[i]
+            if pd.notna(v) and str(v).strip()
+        ]
+        if not row_vals:
+            continue
+        numeric = sum(
+            1 for v in row_vals
+            if v.replace(".", "", 1).replace("-", "", 1).isdigit()
+        )
+        if numeric / len(row_vals) < 0.5:
+            return i
+    return 2
+
+
 def index_file(conn: sqlite3.Connection, file_path: str) -> tuple[bool, str]:
     """
     단일 .xlsx 파일을 읽어 cells / col_data / files 테이블에 저장한다.
     - 기존 레코드가 있으면 DELETE → CASCADE로 연관 데이터도 삭제
-    - header=2: 3번째 행(0-based index 2)을 헤더로 사용
+    - 헤더 행 자동 감지: 첫 3행 중 문자열 비율이 높은 행을 헤더로 사용
     - 성공 시 (True, ""), 실패 시 (False, 오류 메시지) 반환
     """
     try:
@@ -166,14 +189,39 @@ def index_file(conn: sqlite3.Connection, file_path: str) -> tuple[bool, str]:
         # 기존 레코드 삭제 (CASCADE로 cells, col_data도 함께 삭제됨)
         conn.execute("DELETE FROM files WHERE file_path = ?", (file_path,))
 
-        # 전체 시트를 읽음; header=2는 3번째 행을 컬럼명으로 사용
-        sheets: dict[str, pd.DataFrame] = pd.read_excel(
+        # header=None으로 전체 시트를 raw하게 읽어 헤더 행을 직접 감지
+        sheets_raw: dict[str, pd.DataFrame] = pd.read_excel(
             file_path,
             sheet_name=None,
-            header=2,
+            header=None,
             dtype=str,
             engine="openpyxl",
         )
+
+        # 시트별 헤더 행 감지 후 정제된 DataFrame으로 변환
+        sheets: dict[str, pd.DataFrame] = {}
+        for sheet_name, df_raw in sheets_raw.items():
+            if df_raw.empty:
+                continue
+            h = _detect_header_row(df_raw)
+            df = df_raw.iloc[h + 1:].copy()
+
+            # 헤더 행에서 컬럼명 추출 + 중복 컬럼명 자동 구분
+            raw_cols = [str(v).strip() if pd.notna(v) else "" for v in df_raw.iloc[h]]
+            seen: dict[str, int] = {}
+            unique_cols = []
+            for col in raw_cols:
+                col = col or "col"
+                if col in seen:
+                    seen[col] += 1
+                    unique_cols.append(f"{col}.{seen[col]}")
+                else:
+                    seen[col] = 0
+                    unique_cols.append(col)
+
+            df.columns = unique_cols
+            df = df.reset_index(drop=True)
+            sheets[sheet_name] = df
 
         # files 테이블에 메타데이터 삽입 후 file_id 획득
         cursor = conn.execute(
@@ -195,8 +243,9 @@ def index_file(conn: sqlite3.Connection, file_path: str) -> tuple[bool, str]:
             for col_index, col_name in enumerate(columns):
                 col_name_str = str(col_name)
 
-                # --- cells 배치 준비 ---
-                for row_index, cell_value in enumerate(df[col_name]):
+                # --- cells 배치 준비 (인덱스 기반 접근으로 중복 컬럼명 문제 방지) ---
+                col_series = df.iloc[:, col_index]
+                for row_index, cell_value in enumerate(col_series):
                     cells_batch.append((
                         file_id,
                         sheet_name,
@@ -208,7 +257,7 @@ def index_file(conn: sqlite3.Connection, file_path: str) -> tuple[bool, str]:
 
                 # --- col_data 준비 (열 전체 값을 JSON 직렬화) ---
                 all_values = json.dumps(
-                    [str(v) for v in df[col_name].tolist()],
+                    [str(v) for v in col_series.tolist()],
                     ensure_ascii=False,
                 )
                 col_data_batch.append((
