@@ -301,6 +301,7 @@ def run_indexing(
     db_path: str,
     exclude_files: list[str] = [],
     progress_callback=None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict:
     """
     폴더 전체를 스캔하고 변경/신규 파일만 재인덱싱한다.
@@ -316,8 +317,11 @@ def run_indexing(
     skipped = 0
     failed: list[str] = []
 
-    conn = get_connection(db_path)
-    init_db(conn)
+    # 외부에서 conn이 전달되면 재사용, 아니면 새로 생성
+    _owns_conn = conn is None
+    if _owns_conn:
+        conn = get_connection(db_path)
+        init_db(conn)
 
     try:
         # 디스크의 현재 파일 목록
@@ -371,7 +375,8 @@ def run_indexing(
         conn.commit()
 
     finally:
-        conn.close()
+        if _owns_conn:
+            conn.close()
 
     return {
         "total": total,

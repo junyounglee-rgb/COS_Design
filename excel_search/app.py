@@ -211,6 +211,7 @@ with st.sidebar:
                     db_path=db_path,
                     exclude_files=exclude,
                     progress_callback=progress_callback,
+                    conn=st.session_state.conn,
                 )
 
             progress_bar.empty()
@@ -281,6 +282,7 @@ if st.button("🔍 검색", type="primary"):
                         folder_path=folder,
                         db_path=db_path,
                         exclude_files=exclude,
+                        conn=st.session_state.conn,
                     )
                 update_stats()
                 if result["indexed"] == 0 and not result["failed"]:
