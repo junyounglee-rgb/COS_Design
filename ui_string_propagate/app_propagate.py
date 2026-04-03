@@ -8,6 +8,7 @@ import queue
 import time
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 import yaml
 
@@ -63,6 +64,8 @@ if "rollback_logs" not in st.session_state:
     st.session_state["rollback_logs"] = []
 if "rollback_results" not in st.session_state:
     st.session_state["rollback_results"] = []
+if "rollback_log_queue" not in st.session_state:
+    st.session_state["rollback_log_queue"] = queue.Queue()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -134,11 +137,31 @@ with st.container(border=True):
         )
         sibling_repos = [p.strip() for p in sibling_repos_raw.splitlines() if p.strip()]
     with col2:
-        author = st.text_input("작업자 이름", value="")
+        author = st.text_input("작업자 이름", value=cfg.get("author", ""))
         dry_run = st.checkbox(
             "Dry-run (커밋/푸시 없이 결과만 확인)",
             value=cfg.get("dry_run", False),
         )
+
+    if st.button("💾 설정 저장", use_container_width=False):
+        new_cfg = {
+            **cfg,
+            "repo_root": repo_root,
+            "datasheet": datasheet_exe,
+            "sibling_repos": sibling_repos,
+            "author": author,
+            "dry_run": dry_run,
+        }
+        save_config(new_cfg)
+        st.success("설정이 저장됐습니다.")
+
+    # 잠금 파일 잔류 감지
+    if LOCK_FILE.exists():
+        st.warning("⚠️ 잠금 파일이 남아있습니다. 이전 실행이 비정상 종료됐을 수 있습니다.")
+        if st.button("🗑️ 잠금 파일 삭제"):
+            LOCK_FILE.unlink(missing_ok=True)
+            st.success("잠금 파일을 삭제했습니다.")
+            st.rerun()
 
 # ── 브랜치 선택 ──────────────────────────────────────────────
 with st.container(border=True):
@@ -253,55 +276,73 @@ with st.container(border=True):
 st.divider()
 
 run_disabled = is_running()
-btn_label = "⏳ 실행 중..." if run_disabled else "🚀 전파 실행"
 
-if st.button(btn_label, disabled=run_disabled, type="primary", use_container_width=True):
-    # 입력 검증
+def _start_propagator(pull_only: bool) -> None:
+    """공통 Propagator 생성 및 실행 헬퍼."""
     errors = []
     if not repo_root:
         errors.append("저장소 경로를 입력해주세요.")
-    if not author.strip():
+    if not pull_only and not author.strip():
         errors.append("작업자 이름을 입력해주세요.")
     if not selected_branches:
         errors.append("대상 브랜치를 하나 이상 선택해주세요.")
-    if not commit_msg.strip():
+    if not pull_only and not commit_msg.strip():
         errors.append("커밋 메시지를 입력해주세요.")
 
     if errors:
         for e in errors:
             st.error(e)
+        return
+
+    log_q: queue.Queue = st.session_state["log_queue"]
+    st.session_state["run_logs"] = []
+    st.session_state["results"] = []
+
+    def log_callback(msg: str) -> None:
+        log_q.put(msg)
+
+    xlsx_path = Path(repo_root) / "excel" / "ui_strings.xlsx"
+
+    propagator = Propagator(
+        repo_root=repo_root,
+        datasheet_exe=datasheet_exe,
+        xlsx_path=str(xlsx_path),
+        branches=selected_branches,
+        commit_msg=commit_msg if not pull_only else "",
+        sibling_repos=sibling_repos,
+        pull_only=pull_only,
+        dry_run=dry_run,
+        log_callback=log_callback,
+    )
+
+    validation_errors = propagator.validate()
+    if validation_errors:
+        for e in validation_errors:
+            st.error(e)
+        return
+
+    pt = PropagatorThread(propagator)
+    st.session_state["propagator_thread"] = pt
+    pt.start()
+    st.rerun()
+
+
+col_pull, col_push = st.columns(2)
+
+with col_pull:
+    pull_label = "⏳ 실행 중..." if run_disabled else "🔽 선택 브랜치 풀 받기"
+    if st.button(pull_label, disabled=run_disabled, use_container_width=True):
+        _start_propagator(pull_only=True)
+
+with col_push:
+    if run_disabled:
+        push_label = "⏳ 실행 중..."
+    elif dry_run:
+        push_label = "🧪 string 파일 전파 [DRY-RUN]"
     else:
-        log_q: queue.Queue = st.session_state["log_queue"]
-        # 이전 로그 초기화
-        st.session_state["run_logs"] = []
-        st.session_state["results"] = []
-
-        def log_callback(msg: str) -> None:
-            log_q.put(msg)
-
-        xlsx_path = Path(repo_root) / "excel" / "ui_strings.xlsx"
-
-        propagator = Propagator(
-            repo_root=repo_root,
-            datasheet_exe=datasheet_exe,
-            xlsx_path=str(xlsx_path),
-            branches=selected_branches,
-            commit_msg=commit_msg,
-            sibling_repos=sibling_repos,
-            dry_run=dry_run,
-            log_callback=log_callback,
-        )
-
-        # 사전 검증
-        validation_errors = propagator.validate()
-        if validation_errors:
-            for e in validation_errors:
-                st.error(e)
-        else:
-            pt = PropagatorThread(propagator)
-            st.session_state["propagator_thread"] = pt
-            pt.start()
-            st.rerun()
+        push_label = "🚀 string 파일 전파"
+    if st.button(push_label, disabled=run_disabled, type="primary", use_container_width=True):
+        _start_propagator(pull_only=False)
 
 # ── 진행 상황 표시 ────────────────────────────────────────────
 pt: PropagatorThread | None = st.session_state.get("propagator_thread")
@@ -333,26 +374,33 @@ if pt is not None:
             results: list[BranchResult] = pt.results
             st.session_state["results"] = results
 
+            is_pull_only = pt._propagator.pull_only
             st.subheader("결과")
             for res in results:
                 if res.success and not res.skipped:
-                    if dry_run:
+                    if is_pull_only:
+                        st.success(f"✅ {res.branch} — pull 완료")
+                    elif dry_run:
                         st.success(f"✅ {res.branch} — dry-run 완료")
                     else:
                         st.success(f"✅ {res.branch} — 커밋+푸시 완료")
                 elif res.skipped:
                     st.info(f"⏭️ {res.branch} — 스킵: {res.skip_reason}")
                 else:
-                    summary = extract_panic_summary(res.error_detail or "")
+                    detail = res.error_detail or ""
+                    summary = extract_panic_summary(detail)
+                    is_panic = "panic:" in detail
                     with st.expander(f"❌ {res.branch} — {res.error_stage} 실패", expanded=True):
                         st.error(summary)
-                        if res.error_detail and res.error_detail.strip() != summary:
-                            with st.expander("스택 트레이스 보기", expanded=False):
-                                st.code(res.error_detail, language=None)
+                        if detail.strip() and detail.strip() != summary:
+                            label = "스택 트레이스 보기" if is_panic else "상세 메시지 보기"
+                            with st.expander(label, expanded=not is_panic):
+                                st.code(detail, language=None)
 
-            # 실행 완료 후 잠금 파일 잔여 확인
+            # 실행 완료 후 잠금 파일 잔여 및 thread 정리
             if LOCK_FILE.exists():
                 LOCK_FILE.unlink(missing_ok=True)
+            st.session_state["propagator_thread"] = None
 
 # ── 롤백 섹션 ─────────────────────────────────────────────────
 st.divider()
@@ -385,9 +433,10 @@ with st.container(border=True):
                     st.session_state["confirm_rollback"] = False
                     st.session_state["rollback_logs"] = []
                     st.session_state["rollback_results"] = []
-
-                    rb_log_q: queue.Queue = queue.Queue()
-                    st.session_state["rollback_log_queue"] = rb_log_q
+                    # 기존 queue 재사용 (초기화 후 재활용)
+                    rb_log_q: queue.Queue = st.session_state["rollback_log_queue"]
+                    while not rb_log_q.empty():
+                        rb_log_q.get_nowait()
 
                     rollbacker = Rollbacker(
                         repo_root=repo_root,
@@ -405,7 +454,7 @@ with st.container(border=True):
 
         # 롤백 진행 상황
         if rb_thread is not None:
-            rb_log_q = st.session_state.get("rollback_log_queue", queue.Queue())
+            rb_log_q = st.session_state["rollback_log_queue"]
             while not rb_log_q.empty():
                 try:
                     st.session_state["rollback_logs"].append(rb_log_q.get_nowait())
@@ -424,9 +473,13 @@ with st.container(border=True):
                     if res.success:
                         st.success(f"✅ {res.branch} — 롤백 완료")
                     else:
-                        summary = extract_panic_summary(res.error_detail or "")
+                        detail = res.error_detail or ""
+                        summary = extract_panic_summary(detail)
+                        is_panic = "panic:" in detail
                         with st.expander(f"❌ {res.branch} — {res.error_stage} 실패", expanded=True):
                             st.error(summary)
-                            if res.error_detail and res.error_detail.strip() != summary:
-                                with st.expander("스택 트레이스 보기", expanded=False):
-                                    st.code(res.error_detail, language=None)
+                            if detail.strip() and detail.strip() != summary:
+                                label = "스택 트레이스 보기" if is_panic else "상세 메시지 보기"
+                                with st.expander(label, expanded=not is_panic):
+                                    st.code(detail, language=None)
+                st.session_state["rollback_thread"] = None

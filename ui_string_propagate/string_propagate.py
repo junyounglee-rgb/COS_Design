@@ -238,6 +238,7 @@ class Propagator:
         branches: list[str],
         commit_msg: str,
         sibling_repos: list[str] | None = None,
+        pull_only: bool = False,
         dry_run: bool = False,
         log_callback: Callable[[str], None] | None = None,
     ):
@@ -249,6 +250,7 @@ class Propagator:
         self.commit_msg = commit_msg
         self.sibling_repos = [Path(p) for p in (sibling_repos or [])]
         self.dry_run = dry_run
+        self.pull_only = pull_only
         self.log = log_callback or (lambda msg: None)
         self.results: list[BranchResult] = []
         self._session_id = str(uuid.uuid4())[:8]
@@ -270,10 +272,10 @@ class Propagator:
         if not self.repo_root.exists():
             errors.append(f"저장소 경로가 없습니다: {self.repo_root}")
 
-        if not self.datasheet_exe.exists():
+        if not self.pull_only and not self.datasheet_exe.exists():
             errors.append(f"datasheet.exe 없음: {self.datasheet_exe}")
 
-        if not self.xlsx_path.exists():
+        if not self.pull_only and not self.xlsx_path.exists():
             errors.append(f"xlsx 파일 없음: {self.xlsx_path}")
 
         if not self.branches:
@@ -282,7 +284,7 @@ class Propagator:
         if "main" not in self.branches:
             errors.append("main 브랜치는 필수 포함입니다.")
 
-        if not self.commit_msg.strip():
+        if not self.pull_only and not self.commit_msg.strip():
             errors.append("커밋 메시지를 입력해주세요.")
 
         # sibling 저장소 경로 존재 확인
@@ -343,8 +345,9 @@ class Propagator:
         self._log(f"\n원래 브랜치 복원: {src_branch}")
         self._git(["checkout", src_branch])
 
-        # 성공한 브랜치만 롤백 로그 저장
-        save_rollback_log(self.commit_msg, results)
+        # 풀 전용 모드에서는 롤백 로그 저장 안 함
+        if not self.pull_only:
+            save_rollback_log(self.commit_msg, results)
 
         return results
 
@@ -387,6 +390,12 @@ class Propagator:
                 res.error_stage = "git pull"
                 res.error_detail = err
                 self._log(f"[{branch}] 실패 - pull\n{err}")
+                return res
+
+            # 풀 전용 모드: 여기서 완료
+            if self.pull_only:
+                res.success = True
+                self._log(f"[{branch}] pull 완료")
                 return res
 
             # xlsx 복사
@@ -530,40 +539,39 @@ class Rollbacker:
         return run_git(args, cwd=str(cwd or self.repo_root))
 
     def run(self) -> list[BranchResult]:
-        TMP_BASE.mkdir(parents=True, exist_ok=True)
-        work_dir = TMP_BASE / self._session_id
         results = []
+        src_branch = current_branch(str(self.repo_root))
 
         try:
             acquire_lock()
-            work_dir.mkdir(parents=True, exist_ok=True)
             for entry in self.log_data.get("entries", []):
-                res = self._revert_branch(entry["branch"], entry["commit_hash"], work_dir)
+                res = self._revert_branch(entry["branch"], entry["commit_hash"])
                 results.append(res)
         except LockError as e:
             self.log(f"[오류] {e}")
         finally:
             release_lock()
-            if work_dir.exists():
-                shutil.rmtree(work_dir, ignore_errors=True)
+            self.log(f"\n원래 브랜치 복원: {src_branch}")
+            self._git(["checkout", src_branch])
 
         self.results = results
         return results
 
-    def _revert_branch(self, branch: str, commit_hash: str, work_dir: Path) -> BranchResult:
+    def _revert_branch(self, branch: str, commit_hash: str) -> BranchResult:
         res = BranchResult(branch=branch)
-        wt_path = work_dir / branch.replace("/", "_")
         self.log(f"\n[{branch}] 롤백 시작 (revert {commit_hash[:8]})")
 
         try:
-            code, _, err = self._git(["worktree", "add", str(wt_path), branch])
+            self.log(f"[{branch}] checkout 중...")
+            code, _, err = self._git(["checkout", branch])
             if code != 0:
-                res.error_stage = "worktree add"
+                res.error_stage = "git checkout"
                 res.error_detail = err
-                self.log(f"[{branch}] 실패 - worktree add\n{err}")
+                self.log(f"[{branch}] 실패 - checkout\n{err}")
                 return res
 
-            code, _, err = self._git(["pull", "origin", branch], cwd=wt_path)
+            self.log(f"[{branch}] pull 중...")
+            code, _, err = self._git(["pull", "origin", branch])
             if code != 0:
                 res.error_stage = "git pull"
                 res.error_detail = err
@@ -571,9 +579,7 @@ class Rollbacker:
                 return res
 
             self.log(f"[{branch}] git revert...")
-            code, _, err = self._git(
-                ["revert", "--no-edit", commit_hash], cwd=wt_path
-            )
+            code, _, err = self._git(["revert", "--no-edit", commit_hash])
             if code != 0:
                 res.error_stage = "git revert"
                 res.error_detail = err
@@ -581,7 +587,7 @@ class Rollbacker:
                 return res
 
             self.log(f"[{branch}] git push...")
-            code, _, err = self._git(["push", "origin", branch], cwd=wt_path)
+            code, _, err = self._git(["push", "origin", branch])
             if code != 0:
                 res.error_stage = "git push"
                 res.error_detail = err
@@ -595,10 +601,6 @@ class Rollbacker:
             res.error_stage = "예외"
             res.error_detail = str(e)
             self.log(f"[{branch}] 예외: {e}")
-
-        finally:
-            if wt_path.exists():
-                self._git(["worktree", "remove", "--force", str(wt_path)])
 
         return res
 
