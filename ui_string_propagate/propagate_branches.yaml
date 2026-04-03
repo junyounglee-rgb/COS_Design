@@ -1,0 +1,16 @@
+branches:
+  - release_helsinki2
+  - release_helsinki3
+  - release_helsinki_vng
+  - main
+
+repo_root: D:\COS_Project\cos-data
+datasheet: D:\COS_Project\cos-data\datasheet.exe
+
+# datasheet 실행 전 함께 최신화할 저장소 경로 (같은 브랜치명으로 checkout+pull)
+sibling_repos:
+  - D:\COS_Project\cos-common
+  - D:\COS_Project\cos-client
+
+# dry_run: true  # 커밋/푸시 없이 결과만 확인할 때 주석 해제
+dry_run: false

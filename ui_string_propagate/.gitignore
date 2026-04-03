@@ -1,0 +1,5 @@
+_tmp/
+__pycache__/
+*.pyc
+last_propagation.json
+.ui_string_propagate.lock
