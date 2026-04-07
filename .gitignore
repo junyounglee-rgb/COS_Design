@@ -22,7 +22,6 @@ secrets.*
 
 # Claude Code 로컬 설정 (로컬 경로 포함)
 .claude/
-!cos-client/.claude/
 
 # OS
 .DS_Store
