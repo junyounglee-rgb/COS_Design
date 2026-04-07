@@ -1,0 +1,11 @@
+repo_root: D:\COS_Project\cos-data
+
+sibling_repos:
+  - D:\COS_Project\cos-common
+  - D:\COS_Project\cos-client
+
+branches:
+  - main
+  - release_helsinki2
+  - release_helsinki3
+  - release_helsinki_vng
