@@ -648,7 +648,7 @@ def _build_comparison_html(
     cols: list[int],
     aligned_pairs: list[tuple[int | None, int | None]],
 ) -> str:
-    """좌우 비교 HTML — 단일 테이블 (행 높이 자동 일치)"""
+    """좌우 비교 HTML — 2개 테이블 flex + JS 행 높이 동기화"""
     global _compare_counter
     _compare_counter += 1
     uid = f"bc{_compare_counter}"
@@ -664,23 +664,11 @@ def _build_comparison_html(
             return ""
         return _esc(_trunc(data.get((row, col), "")))
 
-    n = len(cols)
     col_headers = [_esc(_trunc(headers.get(c, f"col{c}"), 20)) for c in cols]
+    header_row_html = "".join(f"<th>{h}</th>" for h in ["행"] + col_headers)
 
-    # --- thead: 2행 (레이블 + 컬럼 헤더) ---
-    label_row = (
-        f"<th colspan='{n + 1}' class='lbl'>◀ 이전 (왼쪽)</th>"
-        f"<th class='dv' rowspan='2'></th>"
-        f"<th colspan='{n + 1}' class='lbl'>▶ 이후 (오른쪽)</th>"
-    )
-    hdr_cells = "".join(f"<th>{h}</th>" for h in ["행"] + col_headers)
-    header_html = (
-        f"<thead><tr>{label_row}</tr>"
-        f"<tr>{hdr_cells}{hdr_cells}</tr></thead>"
-    )
-
-    # --- tbody ---
-    body_rows = []
+    left_rows = []
+    right_rows = []
     for old_r, new_r in aligned_pairs:
         row_added = old_r is None
         row_removed = new_r is None
@@ -713,31 +701,75 @@ def _build_comparison_html(
                 left_cells.append(f"<td{cls}>{old_val}</td>")
                 right_cells.append(f"<td{cls}>{new_val}</td>")
 
-        body_rows.append(
-            "<tr>"
-            + "".join(left_cells)
-            + "<td class='dv'></td>"
-            + "".join(right_cells)
-            + "</tr>"
-        )
+        left_rows.append("<tr>" + "".join(left_cells) + "</tr>")
+        right_rows.append("<tr>" + "".join(right_cells) + "</tr>")
+
+    left_html = (
+        f"<div id='{uid}_left' class='{uid}_scroll' style='overflow:auto;max-height:500px'>"
+        "<table style='border-collapse:collapse;width:max-content'>"
+        f"<thead><tr>{header_row_html}</tr></thead>"
+        "<tbody>" + "".join(left_rows) + "</tbody></table></div>"
+    )
+    right_html = (
+        f"<div id='{uid}_right' class='{uid}_scroll' style='overflow:auto;max-height:500px'>"
+        "<table style='border-collapse:collapse;width:max-content'>"
+        f"<thead><tr>{header_row_html}</tr></thead>"
+        "<tbody>" + "".join(right_rows) + "</tbody></table></div>"
+    )
+
+    # JS: 행 높이 동기화 + 스크롤 동기화
+    js = f"""<script>
+(function(){{
+  function init(){{
+    var L=document.getElementById('{uid}_left');
+    var R=document.getElementById('{uid}_right');
+    if(!L||!R) return;
+    // 행 높이 동기화
+    var lRows=L.querySelectorAll('tbody tr');
+    var rRows=R.querySelectorAll('tbody tr');
+    for(var i=0;i<Math.min(lRows.length,rRows.length);i++){{
+      var h=Math.max(lRows[i].offsetHeight,rRows[i].offsetHeight);
+      lRows[i].style.height=h+'px';
+      rRows[i].style.height=h+'px';
+    }}
+    // 스크롤 동기화 (active 추적 방식)
+    var active=null,timer=null;
+    function release(){{ active=null; timer=null; }}
+    L.addEventListener('scroll',function(){{
+      if(active&&active!==L) return;
+      active=L;
+      R.scrollLeft=L.scrollLeft; R.scrollTop=L.scrollTop;
+      clearTimeout(timer); timer=setTimeout(release,120);
+    }});
+    R.addEventListener('scroll',function(){{
+      if(active&&active!==R) return;
+      active=R;
+      L.scrollLeft=R.scrollLeft; L.scrollTop=R.scrollTop;
+      clearTimeout(timer); timer=setTimeout(release,120);
+    }});
+  }}
+  if(document.readyState==='loading'){{
+    document.addEventListener('DOMContentLoaded',init);
+  }} else {{ setTimeout(init,50); }}
+}})();
+</script>"""
 
     css = f"""<style>
-#{uid} table {{border-collapse:collapse;width:max-content}}
-#{uid} th {{background:#f0f0f0;border:1px solid #ddd;padding:4px 6px;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:1}}
-#{uid} th.lbl {{text-align:center;font-size:13px;background:#e8e8e8}}
-#{uid} td {{border:1px solid #eee;padding:3px 6px;font-size:12px;white-space:nowrap}}
-#{uid} td.dv, #{uid} th.dv {{width:4px;min-width:4px;max-width:4px;background:#999;border:none;padding:0}}
-#{uid} td.rn {{font-weight:600;background:#fafafa}}
-#{uid} .bg-add {{background:#d4edda}}
-#{uid} .bg-del {{background:#f8d7da}}
-#{uid} .bg-chg {{background:#fff3cd}}
-#{uid} tr:hover td:not(.dv) {{background:#f5f5ff!important}}
+#{uid}_left table, #{uid}_right table {{border-collapse:collapse;width:max-content}}
+#{uid}_left th, #{uid}_right th {{background:#f0f0f0;border:1px solid #ddd;padding:4px 6px;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:1}}
+#{uid}_left td, #{uid}_right td {{border:1px solid #eee;padding:3px 6px;font-size:12px;white-space:nowrap}}
+#{uid}_left .rn, #{uid}_right .rn {{font-weight:600;background:#fafafa}}
+#{uid}_left .bg-add, #{uid}_right .bg-add {{background:#d4edda}}
+#{uid}_left .bg-del, #{uid}_right .bg-del {{background:#f8d7da}}
+#{uid}_left .bg-chg, #{uid}_right .bg-chg {{background:#fff3cd}}
+#{uid}_left tr:hover td, #{uid}_right tr:hover td {{background:#f5f5ff!important}}
 </style>"""
 
     return (
         css
-        + f"<div id='{uid}' style='overflow:auto;max-height:500px'>"
-        + f"<table>{header_html}<tbody>"
-        + "".join(body_rows)
-        + "</tbody></table></div>"
+        + "<div style='display:flex;gap:8px'>"
+        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>◀ 이전 (왼쪽)</div>{left_html}</div>"
+        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>▶ 이후 (오른쪽)</div>{right_html}</div>"
+        + "</div>"
+        + js
     )
