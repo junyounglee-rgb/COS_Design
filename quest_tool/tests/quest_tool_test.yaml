@@ -1,0 +1,3 @@
+quests_path: "D:/claude_make/quest_tool/tests/fixtures/quests_test.xlsx"
+items_path: "D:/claude_make/quest_tool/tests/fixtures/items_test.xlsx"
+keywords_path: "D:/claude_make/quest_tool/tests/fixtures/keywords_test.xlsx"
