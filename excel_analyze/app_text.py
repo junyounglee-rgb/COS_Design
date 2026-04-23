@@ -92,37 +92,50 @@ def render_category_tables(filtered: GraphData) -> None:
     for cat_name in sorted(by_cat.keys()):
         nodes = by_cat[cat_name]
         with st.expander(f"**{cat_name}** ({len(nodes)}개 테이블)", expanded=False):
-            for node in sorted(nodes, key=lambda n: n.table_name):
-                fk_list = [
-                    f"{c.name} → {c.fk_target}"
-                    for c in node.columns if c.fk_target
-                ]
-                label = (
-                    f"📄 **{node.table_name}** "
-                    f"| PK: `{node.pk_column or '-'}` "
-                    f"| FK {node.fk_count}개"
-                    + (f" | {', '.join(fk_list)}" if fk_list else "")
-                )
-                with st.expander(label, expanded=False):
-                    col_rows = []
-                    for c in node.columns:
-                        if c.is_comment:
-                            continue
-                        col_rows.append({
-                            "컬럼명": c.name,
-                            "설명 (Row1)": c.description,
-                            "익스포트 경로 (Row2)": c.export_path,
-                            "PK": "✓" if c.is_pk else "",
-                            "FK → ": c.fk_target or "",
-                        })
-                    if col_rows:
-                        st.dataframe(
-                            pd.DataFrame(col_rows),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                    else:
-                        st.caption("컬럼 정보 없음")
+            # 파일명으로 그룹핑
+            by_file: dict[str, list[TableNode]] = defaultdict(list)
+            for node in nodes:
+                by_file[node.file_name].append(node)
+
+            for file_name in sorted(by_file.keys()):
+                file_nodes = by_file[file_name]
+                # 시트가 1개뿐이고 파일명(확장자 제거)과 테이블명이 같으면 파일 헤더 생략
+                base_name = Path(file_name).stem
+                show_file_header = len(file_nodes) > 1 or file_nodes[0].table_name != base_name
+                if show_file_header:
+                    st.markdown(f"**- {base_name.capitalize()}**")
+
+                for node in sorted(file_nodes, key=lambda n: n.table_name):
+                    fk_list = [
+                        f"{c.name} → {c.fk_target}"
+                        for c in node.columns if c.fk_target
+                    ]
+                    label = (
+                        f"📄 **{node.table_name}** "
+                        f"| PK: `{node.pk_column or '-'}` "
+                        f"| FK {node.fk_count}개"
+                        + (f" | {', '.join(fk_list)}" if fk_list else "")
+                    )
+                    with st.expander(label, expanded=False):
+                        col_rows = []
+                        for c in node.columns:
+                            if c.is_comment:
+                                continue
+                            col_rows.append({
+                                "컬럼명": c.name,
+                                "설명 (Row1)": c.description,
+                                "익스포트 경로 (Row2)": c.export_path,
+                                "PK": "✓" if c.is_pk else "",
+                                "FK → ": c.fk_target or "",
+                            })
+                        if col_rows:
+                            st.dataframe(
+                                pd.DataFrame(col_rows),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                        else:
+                            st.caption("컬럼 정보 없음")
 
 
 def render_edge_list(filtered: GraphData) -> None:

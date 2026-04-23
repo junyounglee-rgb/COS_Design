@@ -1,7 +1,7 @@
 """
 Excel 기획 데이터 파서
 - Row1: 컬럼 설명, Row2: 익스포트 경로, Row3: 컬럼 헤더
-- FK 추출: ref_(.+?)_(id|key|type)$ 패턴
+- FK 추출: ref_(.+?)_(ids?|keys?|type)$ 패턴
 """
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ class CategoryInfo:
     name: str
     color: str
     visible: bool = True
+
+
+@dataclass
+class FileInfo:
+    file_name: str
+    lookup_sheets: list[str] = field(default_factory=list)  # # 시트명 목록
 
 
 @dataclass
@@ -70,6 +76,7 @@ class GraphData:
     nodes: list[TableNode] = field(default_factory=list)
     edges: list[GraphEdge] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    file_infos: dict[str, FileInfo] = field(default_factory=dict)  # file_name → FileInfo
 
 
 # ─────────────────────────── 설정 로드 ──────────────────────────────
@@ -163,7 +170,32 @@ def get_file_category(
 
 # ─────────────────────────── Excel 파싱 ─────────────────────────────
 
-_FK_PATTERN = re.compile(r"ref_(.+?)_(id|key|type)$")
+_FK_PATTERN = re.compile(r"ref_(.+?)_(ids?|keys?|type)$")
+
+# regex로 해결 불가능한 비표준 FK → 실제 테이블명 매핑
+_FK_ALIASES: dict[str, str] = {
+    "self_status": "status_effect_infos",
+    "activate_status": "status_effect_infos",
+    "ally_explosion_status": "status_effect_infos",
+    "enemy_explosion_status": "status_effect_infos",
+    "parabola": "parabola_guides",
+    "team": "cameras",
+}
+
+# regex에 매칭되지 않는 비표준 접미사 컬럼 → 수동 매핑 (컬럼명 전체 → 테이블명)
+_FK_COLUMN_OVERRIDES: dict[str, str] = {
+    "ref_self_status_effect": "status_effect_infos",
+    "ref_activate_status_effect": "status_effect_infos",
+    "ref_ally_explosion_status_effect": "status_effect_infos",
+    "ref_enemy_explosion_status_effect": "status_effect_infos",
+    "ref_parabola_guide": "parabola_guides",
+    "ref_team_camera": "cameras",
+}
+
+# FK가 아닌 문자열 참조 — 제외
+_FK_EXCLUDE: set[str] = {
+    "ref_skill_simple_description",
+}
 
 
 def _to_str(val) -> str:
@@ -198,9 +230,14 @@ def extract_columns(ws) -> list[ColumnInfo]:
         is_filter = name.startswith("$")
 
         fk_target: str | None = None
-        m = _FK_PATTERN.match(name)
-        if m:
-            fk_target = m.group(1)
+        if name in _FK_EXCLUDE:
+            pass
+        elif name in _FK_COLUMN_OVERRIDES:
+            fk_target = _FK_COLUMN_OVERRIDES[name]
+        else:
+            m = _FK_PATTERN.match(name)
+            if m:
+                fk_target = m.group(1)
 
         columns.append(ColumnInfo(
             name=name,
@@ -219,16 +256,18 @@ def parse_file(
     file_path: str,
     category: str,
     color: str,
-) -> list[TableNode]:
-    """단일 xlsx → TableNode 리스트 (멀티시트 지원)."""
+) -> tuple[list[TableNode], FileInfo]:
+    """단일 xlsx → (TableNode 리스트, FileInfo) (멀티시트 지원)."""
     file_name = Path(file_path).name
     nodes: list[TableNode] = []
+    file_info = FileInfo(file_name=file_name)
 
     try:
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         for ws in wb.worksheets:
             sheet_name = ws.title
             if sheet_name.startswith("#"):
+                file_info.lookup_sheets.append(sheet_name)
                 continue
             columns = extract_columns(ws)
             nodes.append(TableNode(
@@ -243,7 +282,51 @@ def parse_file(
     except Exception as e:
         print(f"[WARN] parse_file failed: {file_name} — {e}", file=sys.stderr)
 
-    return nodes
+    return nodes, file_info
+
+
+def _resolve_table_name(target: str, all_table_names: set[str]) -> str | None:
+    """FK target 문자열 → 실제 테이블명 해소. 없으면 None."""
+    # 0차: _FK_ALIASES 수동 매핑 (비표준 접미사로 추출된 경우)
+    if target in _FK_ALIASES:
+        alias = _FK_ALIASES[target]
+        if alias in all_table_names:
+            return alias
+
+    # 1차: suffix 변형 시도
+    candidates = _build_candidates(target)
+    for c in candidates:
+        if c in all_table_names:
+            return c
+
+    # 2차: qualifier 접두사 제거 시도
+    # 예: "default_costume" → "costume" → "costumes"
+    # 예: "target_cookie" → "cookie" → "cookies"
+    parts = target.split("_")
+    if len(parts) >= 2:
+        for i in range(1, len(parts)):
+            stripped = "_".join(parts[i:])
+            for c in _build_candidates(stripped):
+                if c in all_table_names:
+                    return c
+
+    return None
+
+
+def _build_candidates(target: str) -> list[str]:
+    """테이블명 후보 생성: exact → +s → +es → -s → +_infos → +_guides"""
+    candidates = [
+        target,
+        target + "s",
+        target + "es",
+    ]
+    if target.endswith("s") and len(target) > 1:
+        candidates.append(target[:-1])
+    candidates.extend([
+        target + "_infos",
+        target + "_guides",
+    ])
+    return candidates
 
 
 def extract_edges(
@@ -263,13 +346,8 @@ def extract_edges(
                 continue
 
             target = col.fk_target
-            # 1차: 그대로 매칭
-            if target in all_table_names:
-                matched = target
-            # 2차: 복수형(s 추가) 재시도
-            elif target + "s" in all_table_names:
-                matched = target + "s"
-            else:
+            matched = _resolve_table_name(target, all_table_names)
+            if matched is None:
                 dangling.append(
                     f"{node.table_name}.{col.name} → '{target}' (테이블 없음)"
                 )
@@ -320,10 +398,11 @@ def parse_excel_folder(yaml_path: str) -> GraphData:
             continue
         category, color = get_file_category(fname_no_ext, file_map)
 
-        file_nodes = parse_file(str(xlsx_path), category, color)
+        file_nodes, file_info = parse_file(str(xlsx_path), category, color)
         if not file_nodes:
             graph.warnings.append(f"파싱 실패 또는 빈 파일: {fname}")
         nodes.extend(file_nodes)
+        graph.file_infos[fname] = file_info
 
     graph.nodes = nodes
 
@@ -359,6 +438,12 @@ if __name__ == "__main__":
     print(f"\n=== FK 관계 (상위 20개) ===")
     for e in graph.edges[:20]:
         print(f"  {e.source} --[{e.label}]--> {e.target}")
+
+    # # 시트 메타데이터
+    lookup_files = {fn: fi for fn, fi in graph.file_infos.items() if fi.lookup_sheets}
+    print(f"\n=== # 시트 보유 파일 ({len(lookup_files)}개) ===")
+    for fn, fi in sorted(lookup_files.items()):
+        print(f"  {fn}: {', '.join(fi.lookup_sheets)}")
 
     if graph.warnings:
         print(f"\n=== 경고 (상위 10개) ===")
