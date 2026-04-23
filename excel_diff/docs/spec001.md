@@ -7,6 +7,7 @@
 | 프로젝트 | excel_diff |
 | 목적 | 커밋 전 로컬 xlsx 파일과 Git 원격(origin) 파일을 비교하는 Streamlit 툴 |
 | 작성일 | 2026-04-23 |
+| 최종 업데이트 | 2026-04-23 (헤더 행 감지·DRY 최적화 반영) |
 | 작성자 | 이준영 (기획), Claude Code (구현) |
 | 저장 경로 | `D:\claude_make\excel_diff\` |
 
@@ -17,7 +18,7 @@
 | 파일 | 역할 |
 |------|------|
 | `app.py` | Streamlit 메인 앱 |
-| `diff_core.py` | xlsx diff 코어 (LCS 기반 행 정렬, HTML 렌더링) |
+| `diff_core.py` | xlsx diff 코어 (LCS 기반 행 정렬, HTML 렌더링) — **cherry_pick.py가 공유 import** |
 | `config.yaml` | 설정 (repo_path, excel_folder, branches) |
 | `requirements.txt` | 의존성 목록 |
 | `install.bat` | uv 기반 설치 (Python 3.12 venv) |
@@ -98,9 +99,35 @@
 | 행 정렬 알고리즘 | `difflib.SequenceMatcher` (LCS 기반) |
 | 레이아웃 | Beyond Compare 스타일 좌우 HTML 테이블 |
 | 인라인 diff | 문자 단위 (삭제: 빨간/굵음, 삽입: 초록/굵음) |
-| 스크롤 동기화 | JS 행 높이 동기화 + 좌우 스크롤 동기화 |
+| 스크롤 동기화 | JS `syncHeights()` + `syncTableSize()` + 좌우 스크롤 이벤트 동기화 |
 | 표시 범위 | 변경 행만 표시, 변경 없는 시트 제외 |
 | 최대 행 수 | `MAX_DIFF_ROWS = 200` |
+
+### 헤더 행 감지 규칙 (`_detect_header_row`)
+
+| 시트명 조건 | 헤더 행 | 데이터 시작 행 | 비고 |
+|---|---|---|---|
+| 시트명에 `#` 포함 | **1행** | 2행 | 주석용 시트 패턴 |
+| 그 외 (일반 게임 데이터) | **3행** | 4행 | 1·2행은 주석/경로 메타 데이터 |
+
+- `_align_rows()`는 `r > header_row` 조건으로 헤더 행 이하 전부 제외
+- 일반 시트의 경우 `$filter`, `^key`, `#설명` 등이 3행에 위치
+
+### 공유 구조 (DRY)
+
+`diff_core.py`는 `excel_diff/app.py`와 `cherry_pick/cherry_pick.py`가 함께 사용하는 단일 진실 공급원(SSOT).
+
+| 공유 심볼 | 용도 |
+|---|---|
+| `run_git_binary` | git subprocess 바이너리 호출 |
+| `_read_sheet_data` | 시트 → `{(row, col): str}` |
+| `_detect_header_row` | 시트명 → 헤더 행 번호 |
+| `_get_headers` | 헤더 행 → `{col: 헤더명}` |
+| `_align_rows` | LCS 기반 행 정렬 |
+| `_build_comparison_html` | 좌우 비교 HTML + JS 생성 |
+| `compare_xlsx_side_by_side` | 시트별 diff HTML dict |
+
+`cherry_pick.py`는 `sys.path.insert`로 `excel_diff/` 경로를 추가한 뒤 위 심볼을 import.
 
 ---
 
@@ -113,6 +140,7 @@
 | 잘못된 리포 경로 | `is_git_repo()` 검사 후 에러 |
 | xlsx 아닌 파일 | 확장자 검사 후 에러 |
 | 리포 외부 경로 | `try_get_rel_path()` → `None` → 수동 입력 UI |
+| 원격 브랜치 조회 실패 | `get_remote_branches()` stderr 캡처 → `st.warning`으로 원인 표시 |
 
 ---
 
@@ -145,3 +173,4 @@
 | `config.yaml` | — |
 | `install.bat` | `uv`, Python 3.12 |
 | `run.bat` | `.venv` (install.bat 선행 필요) |
+| `cherry_pick/cherry_pick.py` | `diff_core.py` (sys.path 주입 후 import) |
