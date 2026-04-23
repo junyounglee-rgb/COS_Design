@@ -72,6 +72,21 @@ def _read_sheet_data(ws) -> dict[tuple[int, int], str]:
     return data
 
 
+def _index_by_row(data: dict[tuple[int, int], str]) -> dict[int, dict[int, str]]:
+    """
+    Flat dict `{(row, col): value}` → `{row: {col: value}}` 로 1회 재인덱싱.
+    이후 행 단위 조회가 O(M) 스캔 대신 O(1) dict lookup 으로 가능.
+    """
+    by_row: dict[int, dict[int, str]] = {}
+    for (r, c), v in data.items():
+        sub = by_row.get(r)
+        if sub is None:
+            by_row[r] = {c: v}
+        else:
+            sub[c] = v
+    return by_row
+
+
 def _detect_header_row(sheet_name: str) -> int:
     """
     시트명에 '#'이 포함되면 1행이 헤더 (현재 동작 유지).
@@ -96,23 +111,34 @@ def _align_rows(
     old_data: dict[tuple[int, int], str],
     new_data: dict[tuple[int, int], str],
     header_row: int = 1,
+    old_by_row: dict[int, dict[int, str]] | None = None,
+    new_by_row: dict[int, dict[int, str]] | None = None,
 ) -> list[tuple[int | None, int | None]]:
     """
     LCS 기반 행 정렬. 첫 2컬럼 값 튜플을 키로 사용.
     반환: (old_row|None, new_row|None) 쌍 목록.
     None = 해당 쪽에 없는 행 (삽입 또는 삭제).
+
+    old_by_row / new_by_row 를 미리 넘기면 재인덱싱을 건너뛴다
+    (성능 최적화: 동일 데이터에 대해 중복 인덱싱 방지).
     """
+    # 행 단위 인덱스 (없으면 생성)
+    if old_by_row is None:
+        old_by_row = _index_by_row(old_data)
+    if new_by_row is None:
+        new_by_row = _index_by_row(new_data)
+
     # header_row 이하(메타 행 포함) 전부 제외
-    old_rows = sorted(set(r for r, c in old_data if r > header_row))
-    new_rows = sorted(set(r for r, c in new_data if r > header_row))
+    old_rows = sorted(r for r in old_by_row if r > header_row)
+    new_rows = sorted(r for r in new_by_row if r > header_row)
 
-    def row_key(data: dict, row: int) -> tuple:
-        cols = sorted(c for r, c in data if r == row)
-        key_cols = cols[:2]
-        return tuple(data.get((row, c), "") for c in key_cols)
+    def row_key(by_row: dict[int, dict[int, str]], row: int) -> tuple:
+        cols_map = by_row.get(row, {})
+        key_cols = sorted(cols_map.keys())[:2]
+        return tuple(cols_map.get(c, "") for c in key_cols)
 
-    old_keys = [row_key(old_data, r) for r in old_rows]
-    new_keys = [row_key(new_data, r) for r in new_rows]
+    old_keys = [row_key(old_by_row, r) for r in old_rows]
+    new_keys = [row_key(new_by_row, r) for r in new_rows]
 
     sm = difflib.SequenceMatcher(None, old_keys, new_keys, autojunk=False)
     aligned: list[tuple[int | None, int | None]] = []
@@ -360,21 +386,28 @@ def compare_xlsx_side_by_side(
         old_data = _read_sheet_data(old_ws) if old_ws else {}
         new_data = _read_sheet_data(new_ws) if new_ws else {}
 
+        # 행 단위 인덱스를 시트 루프 최상단에서 1회만 생성 → 이후 O(1) 조회
+        old_by_row = _index_by_row(old_data)
+        new_by_row = _index_by_row(new_data)
+
         header_row = _detect_header_row(sheet_name)
         headers = (
             _get_headers(new_ws, header_row) if new_ws
             else (_get_headers(old_ws, header_row) if old_ws else {})
         )
 
-        aligned = _align_rows(old_data, new_data, header_row=header_row)
+        aligned = _align_rows(
+            old_data, new_data, header_row=header_row,
+            old_by_row=old_by_row, new_by_row=new_by_row,
+        )
 
         changed_pairs: list[tuple[int | None, int | None]] = []
         for old_r, new_r in aligned:
             if old_r is None or new_r is None:
                 changed_pairs.append((old_r, new_r))
                 continue
-            old_cols = {c: v for (r, c), v in old_data.items() if r == old_r}
-            new_cols = {c: v for (r, c), v in new_data.items() if r == new_r}
+            old_cols = old_by_row.get(old_r, {})
+            new_cols = new_by_row.get(new_r, {})
             all_c    = set(old_cols) | set(new_cols)
             if any(old_cols.get(c, "") != new_cols.get(c, "") for c in all_c):
                 changed_pairs.append((old_r, new_r))
@@ -387,9 +420,9 @@ def compare_xlsx_side_by_side(
         relevant_cols: set[int] = set(headers.keys())
         for old_r, new_r in changed_pairs:
             if old_r:
-                relevant_cols.update(c for r, c in old_data if r == old_r)
+                relevant_cols.update(old_by_row.get(old_r, {}).keys())
             if new_r:
-                relevant_cols.update(c for r, c in new_data if r == new_r)
+                relevant_cols.update(new_by_row.get(new_r, {}).keys())
         cols = sorted(relevant_cols)
         if not cols:
             continue
