@@ -268,3 +268,43 @@ def append_quest_row(xlsx_path: str, field_values: dict[str, Any]) -> int:
     _verify_written_key(xlsx_path, new_key, target_row, header_map_verify)
 
     return target_row
+
+
+def parse_quest_texts(pasted_text: str, quest_templates: dict[str, str]) -> list[dict]:
+    """붙여넣은 텍스트 -> 배치 행 초안 목록.
+
+    Args:
+        pasted_text: 한 줄에 하나씩 quest 텍스트 붙여넣기
+        quest_templates: {B컬럼(quest텍스트): A컬럼(desc텍스트)} from load_quest_templates()
+
+    Returns:
+        list of {
+            description: str (B컬럼값, {0} 그대로 보존),
+            town_description: str (A컬럼값, 매칭되면 채움 아니면 빈 문자열),
+            matched: bool (템플릿 매칭 성공 여부),
+            goal_count: int (기본 1),
+            goal_type_key: str (기본 빈 문자열),
+            goal_type_param1: str (기본 빈 문자열),
+            reward_id: str (기본 빈 문자열),
+            qty: int (기본 1),
+            delete: bool (기본 False),
+        }
+    """
+    rows = []
+    for line in pasted_text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        town_desc = quest_templates.get(line, "")
+        rows.append({
+            "description": line,
+            "town_description": town_desc,
+            "matched": bool(town_desc),
+            "goal_count": 1,
+            "goal_type_key": "",
+            "goal_type_param1": "",
+            "reward_id": "",
+            "qty": 1,
+            "delete": False,
+        })
+    return rows

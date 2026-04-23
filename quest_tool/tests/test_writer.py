@@ -20,6 +20,7 @@ from quest_writer import (
     load_items,
     load_keywords,
     load_quest_templates,
+    parse_quest_texts,
 )
 
 # append 테스트에 사용할 최소 유효 필드값
@@ -330,3 +331,84 @@ class TestAppendQuestRow:
         assert row_data["rewards/0/qty"] == 50
         assert row_data["goal_type/type/%key"] == "play:need_win"
         assert row_data["conditions/0/condition/%key"] == "finish_town_dialog:dialog_group_id"
+
+
+class TestParseQuestTexts:
+    def test_single_line_no_match(self):
+        """매칭 없는 텍스트 -> description만 채우고 town_description 빈 문자열."""
+        result = parse_quest_texts("퀘스트 없는 텍스트", {})
+        assert len(result) == 1
+        assert result[0]["description"] == "퀘스트 없는 텍스트"
+        assert result[0]["town_description"] == ""
+        assert result[0]["matched"] is False
+
+    def test_matching_template(self):
+        """{템플릿 키: desc} 매핑 -> town_description 자동 채움."""
+        templates = {"<color=#ffe535>{0}회 승리</color>": "퀘스트 설명 텍스트"}
+        result = parse_quest_texts("<color=#ffe535>{0}회 승리</color>", templates)
+        assert result[0]["town_description"] == "퀘스트 설명 텍스트"
+        assert result[0]["matched"] is True
+
+    def test_placeholder_preserved(self):
+        """{0} placeholder는 치환 없이 그대로 보존."""
+        result = parse_quest_texts("{0}회 달성하기", {})
+        assert "{0}" in result[0]["description"]
+
+    def test_empty_lines_skipped(self):
+        """빈 줄은 건너뜀."""
+        result = parse_quest_texts("첫줄\n\n세번째줄", {})
+        assert len(result) == 2
+
+    def test_returns_default_values(self):
+        """기본값: goal_count=1, qty=1, delete=False."""
+        result = parse_quest_texts("텍스트", {})
+        assert result[0]["goal_count"] == 1
+        assert result[0]["qty"] == 1
+        assert result[0]["delete"] is False
+
+
+class TestBatchAppend:
+    def test_description_placeholder_preserved(self, quest_xlsx_copy):
+        """TC-12: 배치 저장 시 description의 {0}이 그대로 유지."""
+        from openpyxl import load_workbook
+        from quest_writer import _build_header_map
+
+        existing = get_existing_keys(quest_xlsx_copy)
+        new_key = generate_unique_key(existing)
+        fv = {
+            "^key": new_key,
+            "category": "QUEST_CATEGORY_TOWN",
+            "description": "<color=#ffe535>{0}회 승리</color>하기",
+            "count_type": "QUEST_COUNT_TYPE_SUM",
+            "goal_count": 5,
+        }
+        target_row = append_quest_row(quest_xlsx_copy, fv)
+        # 재오픈해서 description 확인
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        ws = wb["quests"]
+        hm = _build_header_map(ws)
+        desc = ws.cell(row=target_row, column=hm["description"]).value
+        wb.close()
+        assert "{0}" in desc, f"{{0}} 치환됨! 실제값: {desc}"
+
+    def test_batch_three_rows(self, quest_xlsx_copy):
+        """배치로 3개 행 순서대로 추가 -> max_row 3 증가."""
+        from openpyxl import load_workbook
+
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        before_max = wb["quests"].max_row
+        wb.close()
+        existing = get_existing_keys(quest_xlsx_copy)
+        for i in range(3):
+            k = generate_unique_key(existing)
+            existing.add(k)
+            append_quest_row(quest_xlsx_copy, {
+                "^key": k,
+                "category": "QUEST_CATEGORY_TOWN",
+                "count_type": "QUEST_COUNT_TYPE_SUM",
+                "goal_count": i + 1,
+            })
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        after_max = wb["quests"].max_row
+        wb.close()
+        assert after_max == before_max + 3

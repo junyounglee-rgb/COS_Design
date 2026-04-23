@@ -14,6 +14,7 @@ from quest_writer import (
     load_items,
     load_keywords,
     load_quest_templates,
+    parse_quest_texts,
 )
 
 # ---------------------------------------------------------------------------
@@ -523,6 +524,140 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
 
 
 # ---------------------------------------------------------------------------
+# Tab 2: 광장 배치 추가
+# ---------------------------------------------------------------------------
+
+
+def render_tab_plaza(quests_path: str, kw: dict[str, dict[str, str]]) -> None:
+    st.title("광장 퀘스트 배치 추가")
+    st.caption("category=QUEST_CATEGORY_TOWN 퀘스트를 여러 개 한 번에 추가합니다.")
+
+    build_kw = kw.get("build", {})
+    ts_kw = kw.get("timestamp", {})
+
+    # --- 공통 설정 ---
+    st.subheader("공통 설정 (모든 행에 적용)")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        batch_filter = select_or_paste("$filter", ["$$" + k for k in build_kw], "batch_filter")
+        batch_start = select_or_paste("start_timestamp", ["$$" + k for k in ts_kw], "batch_start")
+        batch_end = select_or_paste("end_timestamp", ["$$" + k for k in ts_kw], "batch_end")
+    with col2:
+        batch_reset = st.selectbox(
+            "reset_type",
+            ["QUEST_RESET_TYPE_NONE", "QUEST_RESET_TYPE_DAILY", "QUEST_RESET_TYPE_WEEKLY", "QUEST_RESET_TYPE_REPEAT"],
+            key="batch_reset",
+        )
+        batch_town_cat = st.selectbox(
+            "town_category",
+            ["TOWN_CATEGORY_GENERAL", "TOWN_CATEGORY_INGAME"],
+            key="batch_town_cat",
+        )
+
+    st.divider()
+
+    # --- 텍스트 붙여넣기 ---
+    st.subheader("퀘스트 텍스트 붙여넣기")
+    st.caption("#quest 시트의 quest(B컬럼) 텍스트를 한 줄씩 붙여넣으세요.")
+    pasted = st.text_area(
+        "",
+        height=200,
+        key="batch_paste",
+        label_visibility="collapsed",
+        placeholder="<color=#ffe535>{0}회 전투 승리</color>하기\n...",
+    )
+
+    if st.button("텍스트 파싱", type="secondary"):
+        if pasted.strip():
+            templates = _load_quest_templates(quests_path)
+            parsed = parse_quest_texts(pasted, templates)
+            st.session_state.batch_rows = parsed
+            matched = sum(1 for r in parsed if r["matched"])
+            st.info(f"총 {len(parsed)}행 파싱 완료. 템플릿 매칭: {matched}/{len(parsed)}")
+        else:
+            st.warning("텍스트를 먼저 입력해주세요.")
+
+    # --- 편집 테이블 ---
+    if st.session_state.get("batch_rows"):
+        st.subheader("파싱 결과 편집")
+
+        batch_rows = st.session_state.batch_rows
+
+        goal_keys = [g["key"] for g in GOAL_TYPES]
+
+        df = pd.DataFrame(batch_rows)[
+            ["description", "town_description", "goal_count", "goal_type_key", "goal_type_param1", "reward_id", "qty", "delete"]
+        ]
+
+        edited_df = st.data_editor(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "description": st.column_config.TextColumn("description", width="large"),
+                "town_description": st.column_config.TextColumn("town_description", width="large"),
+                "goal_count": st.column_config.NumberColumn("goal_count", min_value=1, default=1),
+                "goal_type_key": st.column_config.SelectboxColumn("GoalType", options=goal_keys),
+                "goal_type_param1": st.column_config.TextColumn("param1"),
+                "reward_id": st.column_config.TextColumn("reward_id", help="items ^key 입력"),
+                "qty": st.column_config.NumberColumn("qty", min_value=1, default=1),
+                "delete": st.column_config.CheckboxColumn("삭제", default=False),
+            },
+        )
+
+        # 삭제 체크된 행 제외
+        valid_rows = edited_df[~edited_df["delete"]].to_dict("records")
+
+        # 미리보기
+        st.caption(f"총 {len(valid_rows)}개 행 추가 예정")
+
+        # 전체 추가 버튼
+        if st.button(f"{len(valid_rows)}개 전체 추가", type="primary", disabled=(not valid_rows)):
+            success_count = 0
+            fail_msgs = []
+
+            for row in valid_rows:
+                new_key = generate_unique_key(st.session_state.existing_keys)
+
+                fv = {
+                    "^key": new_key,
+                    "$filter": batch_filter,
+                    "category": "QUEST_CATEGORY_TOWN",
+                    "description": row["description"],
+                    "start_timestamp": batch_start,
+                    "end_timestamp": batch_end,
+                    "reset_type": batch_reset,
+                    "town_category": batch_town_cat,
+                    "town_description": row["town_description"] or None,
+                    "count_type": "QUEST_COUNT_TYPE_SUM",
+                    "goal_count": int(row["goal_count"]) if row["goal_count"] else 1,
+                    "goal_type/type/%key": row["goal_type_key"] or None,
+                    "goal_type/type/%param1": row["goal_type_param1"] or None,
+                    "rewards/0/id": int(row["reward_id"]) if str(row["reward_id"]).isdigit() else None,
+                    "rewards/0/qty": int(row["qty"]) if row["qty"] else 1,
+                }
+
+                try:
+                    append_quest_row(quests_path, fv)
+                    st.session_state.existing_keys.add(new_key)
+                    success_count += 1
+                except Exception as e:
+                    fail_msgs.append(f"^key {new_key}: {e}")
+
+            if success_count:
+                st.success(f"{success_count}개 퀘스트 추가 완료")
+            if fail_msgs:
+                st.error("\n".join(fail_msgs))
+
+            # 배치 초기화
+            st.session_state.batch_rows = []
+            st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -545,6 +680,8 @@ def main() -> None:
         st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
     if "condition_count" not in st.session_state:
         st.session_state.condition_count = 1
+    if "batch_rows" not in st.session_state:
+        st.session_state.batch_rows = []
 
     # -- Sidebar: file paths --
     with st.sidebar:
@@ -636,13 +773,13 @@ def main() -> None:
     kw = _load_keywords(keywords_path)
 
     # -- Tabs --
-    tab_add, tab_plaza = st.tabs(["단건 추가", "광장 레이아웃"])
+    tab_add, tab_plaza = st.tabs(["단건 추가", "광장 배치"])
 
     with tab_add:
         render_tab_add(quests_path, items_list, kw)
 
     with tab_plaza:
-        st.info("광장 레이아웃 UI (future)")
+        render_tab_plaza(quests_path, kw)
 
 
 if __name__ == "__main__" or True:
