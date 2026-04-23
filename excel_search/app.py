@@ -20,6 +20,13 @@ from searcher import SearchResult, get_index_stats, search
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="Excel 검색 도구", layout="wide")
 
+# 페이지 하단 클리핑 방지
+st.markdown("""
+<style>
+.block-container { padding-bottom: 120px !important; }
+</style>
+""", unsafe_allow_html=True)
+
 
 # ---------------------------------------------------------------------------
 # 유틸리티 함수
@@ -105,7 +112,10 @@ def render_results(results: list[SearchResult], query: str) -> None:
                         ]
 
                     styled = df.style.apply(highlight_matched, axis=0)
-                    st.dataframe(styled, use_container_width=True, hide_index=True)
+                    # 행 수에 맞게 높이 동적 계산 (내부 스크롤 최소화)
+                    _row_h, _header_h, _max_h = 35, 38, 800
+                    _height = min(_header_h + len(df) * _row_h, _max_h)
+                    st.dataframe(styled, use_container_width=True, hide_index=True, height=_height)
                 else:
                     st.info("행 데이터를 불러올 수 없습니다.")
 
