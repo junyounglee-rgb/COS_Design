@@ -10,14 +10,17 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import yaml
 
 from string_propagate import (
+    BranchPullStatus,
     BranchResult,
     Propagator,
     PropagatorThread,
     Rollbacker,
     RollbackerThread,
+    StatusCheckerThread,
     StringDiff,
     compute_diff,
     current_branch,
@@ -66,6 +69,18 @@ if "rollback_results" not in st.session_state:
     st.session_state["rollback_results"] = []
 if "rollback_log_queue" not in st.session_state:
     st.session_state["rollback_log_queue"] = queue.Queue()
+if "_propagator_pending" not in st.session_state:
+    st.session_state["_propagator_pending"] = None  # None | True(pull) | False(push)
+if "_start_errors" not in st.session_state:
+    st.session_state["_start_errors"] = []
+if "last_is_pull_only" not in st.session_state:
+    st.session_state["last_is_pull_only"] = False
+if "status_checker_thread" not in st.session_state:
+    st.session_state["status_checker_thread"] = None
+if "pull_status" not in st.session_state:
+    st.session_state["pull_status"] = []       # list[BranchPullStatus]
+if "status_log_queue" not in st.session_state:
+    st.session_state["status_log_queue"] = queue.Queue()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -98,6 +113,9 @@ def extract_panic_summary(detail: str) -> str:
 
 
 def is_running() -> bool:
+    # pending 플래그가 있으면 아직 시작 전이어도 "실행 중"으로 간주 (버튼 비활성화)
+    if st.session_state.get("_propagator_pending") is not None:
+        return True
     t: PropagatorThread | None = st.session_state.get("propagator_thread")
     return t is not None and not t.is_done()
 
@@ -112,6 +130,14 @@ def make_commit_msg(author: str, branches: list[str]) -> str:
 # ──────────────────────────────────────────────────────────────
 
 st.title("🔤 UI String 브랜치 전파 도구")
+
+st.warning(
+    "⚠️ **작업 순서 필수 준수**\n\n"
+    "1️⃣ **풀 받기 먼저** — 엑셀 작업 전에 반드시 **🔽 선택 브랜치 풀 받기** 를 실행해 최신 상태로 맞추세요.\n\n"
+    "2️⃣ **그 다음 엑셀 작업** — 풀 완료 후 `ui_strings.xlsx` 를 수정하세요.\n\n"
+    "3️⃣ **전파 실행** — 수정이 끝나면 **🚀 string 파일 전파** 를 실행하세요.",
+    icon="📋",
+)
 
 cfg = load_config()
 
@@ -223,6 +249,64 @@ with st.container(border=True):
                         selected_branches.append(br)
 
         st.caption("🔒 main 브랜치는 필수 포함이며 가장 먼저 처리됩니다.")
+
+        # ── 풀 상태 확인 ──────────────────────────────────────────
+        st.divider()
+        sc_col, btn_col = st.columns([5, 1])
+        with sc_col:
+            st.markdown("**📡 풀 상태 확인** (선택 브랜치 기준)")
+        with btn_col:
+            sc_thread: StatusCheckerThread | None = st.session_state.get("status_checker_thread")
+            sc_running = sc_thread is not None and not sc_thread.is_done()
+            if st.button("📡 상태 확인", disabled=sc_running or is_running(), key="status_refresh"):
+                sq = st.session_state["status_log_queue"]
+                while not sq.empty():
+                    sq.get_nowait()
+                st.session_state["pull_status"] = []
+                checker = StatusCheckerThread(
+                    repo_root=repo_root,
+                    branches=selected_branches,
+                    log_callback=sq.put,
+                )
+                st.session_state["status_checker_thread"] = checker
+                checker.start()
+                st.rerun()
+
+        # 상태 체커 폴링
+        sc_thread = st.session_state.get("status_checker_thread")
+        if sc_thread is not None:
+            sq = st.session_state["status_log_queue"]
+            if sc_thread.is_done():
+                st.session_state["pull_status"] = sc_thread.results
+                st.session_state["status_checker_thread"] = None
+            else:
+                with st.spinner("원격 상태 확인 중..."):
+                    time.sleep(0.5)
+                st.rerun()
+
+        # 상태 표시
+        pull_status: list[BranchPullStatus] = st.session_state.get("pull_status", [])
+        if pull_status:
+            status_map = {s.branch: s for s in pull_status}
+            status_cols = st.columns(min(4, len(pull_status)))
+            for i, br in enumerate(selected_branches):
+                s = status_map.get(br)
+                with status_cols[i % len(status_cols)]:
+                    if s is None:
+                        st.caption(f"`{br}` —")
+                    elif s.remote_missing:
+                        st.caption(f"`{br}` ⚠️ 원격 브랜치 없음")
+                    elif s.local_missing:
+                        st.caption(f"`{br}` 🔄 로컬 없음 (첫 풀 필요)")
+                    elif s.error:
+                        st.caption(f"`{br}` ❌ {s.error}")
+                    elif s.is_uptodate:
+                        st.caption(f"`{br}` ✅ 최신")
+                    else:
+                        st.caption(f"`{br}` 🔄 **{s.behind}커밋** 대기")
+        elif not sc_running:
+            st.caption("새로고침을 눌러 풀 받을 내용이 있는지 확인하세요.")
+
     else:
         st.warning("propagate_branches.yaml에 브랜치가 없습니다.")
         selected_branches = []
@@ -278,7 +362,7 @@ st.divider()
 run_disabled = is_running()
 
 def _start_propagator(pull_only: bool) -> None:
-    """공통 Propagator 생성 및 실행 헬퍼."""
+    """Propagator 생성 및 thread 시작. 오류는 session_state에 저장."""
     errors = []
     if not repo_root:
         errors.append("저장소 경로를 입력해주세요.")
@@ -290,10 +374,10 @@ def _start_propagator(pull_only: bool) -> None:
         errors.append("커밋 메시지를 입력해주세요.")
 
     if errors:
-        for e in errors:
-            st.error(e)
-        return
+        st.session_state["_start_errors"] = errors
+        return  # thread 시작 안 함
 
+    st.session_state["_start_errors"] = []
     log_q: queue.Queue = st.session_state["log_queue"]
     st.session_state["run_logs"] = []
     st.session_state["results"] = []
@@ -315,24 +399,28 @@ def _start_propagator(pull_only: bool) -> None:
         log_callback=log_callback,
     )
 
-    validation_errors = propagator.validate()
-    if validation_errors:
-        for e in validation_errors:
-            st.error(e)
-        return
-
     pt = PropagatorThread(propagator)
     st.session_state["propagator_thread"] = pt
     pt.start()
-    st.rerun()
 
+
+# 저장된 오류 표시 (이전 시도 실패 시)
+for _err in st.session_state.get("_start_errors", []):
+    st.error(_err)
 
 col_pull, col_push = st.columns(2)
 
 with col_pull:
     pull_label = "⏳ 실행 중..." if run_disabled else "🔽 선택 브랜치 풀 받기"
     if st.button(pull_label, disabled=run_disabled, use_container_width=True):
-        _start_propagator(pull_only=True)
+        # 1단계: 즉시 비활성화 (pending 플래그 set → rerun)
+        st.session_state["_propagator_pending"] = True
+        st.session_state["_start_errors"] = []
+        st.rerun()
+
+_cur_diff: StringDiff | None = st.session_state.get("diff")
+_has_changes = _cur_diff is not None and not _cur_diff.is_empty()
+push_disabled = run_disabled or not _has_changes
 
 with col_push:
     if run_disabled:
@@ -341,40 +429,79 @@ with col_push:
         push_label = "🧪 string 파일 전파 [DRY-RUN]"
     else:
         push_label = "🚀 string 파일 전파"
-    if st.button(push_label, disabled=run_disabled, type="primary", use_container_width=True):
-        _start_propagator(pull_only=False)
+    if st.button(push_label, disabled=push_disabled, type="primary", use_container_width=True):
+        # 1단계: 즉시 비활성화
+        st.session_state["_propagator_pending"] = False
+        st.session_state["_start_errors"] = []
+        st.rerun()
+
+# 2단계: 버튼이 비활성화된 렌더 이후 → 실제 thread 시작
+_pending = st.session_state.get("_propagator_pending")
+if _pending is not None and st.session_state.get("propagator_thread") is None:
+    st.session_state["_propagator_pending"] = None  # 플래그 해제
+    _start_propagator(bool(_pending))
+    st.rerun()  # thread 시작 후 진행 상황 표시 / 오류 시 버튼 재활성화
 
 # ── 진행 상황 표시 ────────────────────────────────────────────
 pt: PropagatorThread | None = st.session_state.get("propagator_thread")
 
+# ① 스레드 관리: 로그 수집 / 브라우저 경고 / 완료 처리
 if pt is not None:
     log_q: queue.Queue = st.session_state["log_queue"]
-
-    # 큐에 쌓인 로그 수집
     while not log_q.empty():
         try:
-            msg = log_q.get_nowait()
-            st.session_state["run_logs"].append(msg)
+            st.session_state["run_logs"].append(log_q.get_nowait())
         except queue.Empty:
             break
 
+    if not pt.is_done():
+        components.html("""
+        <script>
+        parent.window.onbeforeunload = function(e) {
+            var msg = '⚠️ 작업이 진행 중입니다. 창을 닫으면 일부 브랜치만 처리될 수 있습니다.';
+            e.returnValue = msg;
+            return msg;
+        };
+        </script>
+        """, height=0)
+    else:
+        # 완료: 결과 session_state에 보존 후 thread 정리 → rerun
+        components.html("""
+        <script>parent.window.onbeforeunload = null;</script>
+        """, height=0)
+        st.session_state["results"] = pt.results
+        st.session_state["last_is_pull_only"] = pt._propagator.pull_only
+        if LOCK_FILE.exists():
+            LOCK_FILE.unlink(missing_ok=True)
+        st.session_state["propagator_thread"] = None
+        st.rerun()  # 버튼 재활성화
+
+# ② 표시: thread 유무와 무관하게 session_state 기준으로 항상 렌더
+if pt is not None or st.session_state["run_logs"] or st.session_state["results"]:
     with st.container(border=True):
         st.subheader("진행 상황")
 
+        # 진행 중 안내 (thread 실행 중일 때만)
+        if pt is not None and not pt.is_done():
+            is_pull = pt._propagator.pull_only
+            action = "풀 받기" if is_pull else "전파"
+            branches_str = " → ".join(pt._propagator.branches)
+            st.info(f"⏳ {action} 진행 중... `{branches_str}`")
+
+        # 로그 (항상 표시 — 완료 후에도 유지)
         if st.session_state["run_logs"]:
-            log_text = "\n".join(st.session_state["run_logs"])
-            st.code(log_text, language=None)
+            st.code("\n".join(st.session_state["run_logs"]), language=None)
 
-        if not pt.is_done():
-            st.spinner("실행 중...")
-            time.sleep(0.5)
+        # 폴링 (thread 실행 중일 때만)
+        if pt is not None and not pt.is_done():
+            with st.spinner("git 작업 실행 중..."):
+                time.sleep(0.5)
             st.rerun()
-        else:
-            # 완료 - 결과 표시
-            results: list[BranchResult] = pt.results
-            st.session_state["results"] = results
 
-            is_pull_only = pt._propagator.pull_only
+        # 결과 (thread 완료 후 session_state에서 표시)
+        results: list[BranchResult] = st.session_state.get("results", [])
+        if results and pt is None:
+            is_pull_only: bool = st.session_state.get("last_is_pull_only", False)
             st.subheader("결과")
             for res in results:
                 if res.success and not res.skipped:
@@ -396,11 +523,6 @@ if pt is not None:
                             label = "스택 트레이스 보기" if is_panic else "상세 메시지 보기"
                             with st.expander(label, expanded=not is_panic):
                                 st.code(detail, language=None)
-
-            # 실행 완료 후 잠금 파일 잔여 및 thread 정리
-            if LOCK_FILE.exists():
-                LOCK_FILE.unlink(missing_ok=True)
-            st.session_state["propagator_thread"] = None
 
 # ── 롤백 섹션 ─────────────────────────────────────────────────
 st.divider()

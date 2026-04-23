@@ -7,7 +7,8 @@
 | 문서 번호 | spec001 |
 | 프로젝트 | Cookie Run: Oven Smash (COS) |
 | 도구명 | UI String 브랜치 전파 도구 |
-| 작성일 | 2026-04-03 |
+| 최초 작성일 | 2026-04-03 |
+| 최종 수정일 | 2026-04-03 |
 | 저장 위치 | `D:\claude_make\ui_string_propagate\` |
 
 ## 목적
@@ -43,6 +44,8 @@
 | `install.bat` | 의존성 패키지 설치 스크립트 |
 | `requirements.txt` | Python 패키지 목록 |
 | `사용가이드.txt` | 비개발직군 대상 사용 설명서 |
+| `docs/spec001.md` | 기능 명세 (현재 문서) |
+| `docs/his001.md` | 개발 히스토리 |
 | `last_propagation.json` | 마지막 전파의 브랜치별 커밋 해시 (자동 생성) |
 | `.ui_string_propagate.lock` | 중복 실행 방지 잠금 파일 (자동 생성) |
 
@@ -56,11 +59,20 @@
 | `repo_root` | `D:\COS_Project\cos-data` | cos-data 저장소 루트 |
 | `datasheet` | `D:\COS_Project\cos-data\datasheet.exe` | datasheet 실행 파일 경로 |
 | `sibling_repos` | `[D:\COS_Project\cos-common, D:\COS_Project\cos-client]` | datasheet 실행 전 최신화할 연동 저장소 목록 |
+| `author` | `""` | 작업자 이름 (커밋 메시지 자동 포함, GUI에서 저장 가능) |
 | `dry_run` | `false` | `true` 시 커밋/푸시 없이 결과만 확인 |
 
 ---
 
 ## 기능 명세
+
+### 실행 버튼 구분
+
+| 버튼 | 동작 |
+|------|------|
+| 🔽 선택 브랜치 풀 받기 | sibling repos + cos-data를 선택 브랜치로 checkout+pull만 수행. xlsx 복사/datasheet/커밋/푸시 없음 |
+| 🚀 string 파일 전파 | 풀 받기 포함 전체 전파 흐름 실행 (xlsx 복사 → datasheet → 커밋 → 푸시) |
+| 🧪 string 파일 전파 [DRY-RUN] | dry_run 활성화 시 표시. 커밋/푸시 없이 전파 흐름만 확인 |
 
 ### 다중 브랜치 전파
 
@@ -78,15 +90,17 @@
 ### sibling 저장소 자동 최신화
 
 - 대상: `sibling_repos`에 등록된 저장소 (`cos-common`, `cos-client`)
-- 시점: 각 브랜치의 `datasheet.exe` 실행 직전
+- 시점: 각 브랜치의 처리 시작 직전 (풀 받기 모드 포함)
 - 동작: 동일 브랜치명으로 `git checkout` → `git pull origin <branch>`
 - 이유: `datasheet.exe`가 `cos-common`, `cos-client`의 최신 코드를 참조해야 정상 변환
+- 브랜치 미존재 시: 사전 검증(`validate()`)에서 오류 반환하여 실행 차단
 
 ### datasheet.exe 자동 실행
 
 - `cos-data` 루트에서 실행
 - 성공 시: `protobuf/*.pb` 파일 갱신
 - 실패 시: 해당 브랜치 처리 중단, 이후 브랜치 계속 진행
+- 풀 받기 모드에서는 실행 안 함
 
 ### 커밋/푸시 자동화
 
@@ -100,26 +114,49 @@
 - `datasheet.exe` 실행 건너뜀
 - 커밋/푸시 없이 전파 흐름 검증
 
+### 설정 저장
+
+- GUI 설정 섹션에서 경로, 작업자 이름, sibling_repos, dry_run 편집
+- 💾 설정 저장 버튼으로 `propagate_branches.yaml`에 영구 저장
+- 앱 재시작 시 저장된 설정 자동 로드 (작업자 이름 포함)
+
 ### 잠금 파일
 
 - 경로: `.ui_string_propagate.lock`
 - 내용: `PID=<pid> TIME=<datetime>`
-- 전파 시작 시 생성, 종료 시 삭제
-- 잠금 파일 존재 시 `LockError` 발생 → 비정상 종료 시 수동 삭제 필요
+- 전파 시작 시 생성, 종료 시 삭제 (정상/비정상 종료 모두)
+- 잠금 파일 잔류 시: GUI 상단 경고 표시 + 🗑️ 잠금 파일 삭제 버튼으로 수동 해제 가능
 
 ### 일괄 롤백
 
 - 대상: `last_propagation.json`에 기록된 마지막 전파
-- 방법: `git revert --no-edit <commit_hash>` → `git push origin <branch>`
+- 방법: 각 브랜치에 `git checkout` → `git pull` → `git revert --no-edit <commit_hash>` → `git push`
+- 완료 후 원래 브랜치로 복원
 - GUI에서 2단계 확인 다이얼로그 후 실행 (확인 → 취소 선택)
-- 롤백에는 worktree 방식 사용 (현재 작업 브랜치 보존 목적)
+- 풀 받기 모드로 실행한 경우 롤백 로그 저장 안 함
+
+### 에러 표시
+
+- `panic:` 포함 에러: 첫 번째 `panic:` 줄만 강조 표시, 전체 스택트레이스는 "스택 트레이스 보기"(접힘)로 제공
+- 일반 에러: 첫 줄 요약 강조 표시, 전체 내용은 "상세 메시지 보기"(펼침)로 제공
 
 ---
 
 ## 전파 흐름
 
 ```
-[각 브랜치 처리 순서]
+[풀 받기 모드 — 각 브랜치]
+
+1. sibling_repos 순서대로:
+   - git checkout <branch>
+   - git pull origin <branch>
+
+2. cos-data:
+   - git checkout <branch>
+   - git pull origin <branch>
+   → 완료 (이하 생략)
+
+[전파 모드 — 각 브랜치]
 
 1. sibling_repos 순서대로:
    - git checkout <branch>
@@ -174,25 +211,25 @@
 
 ```
 string_propagate.py
-├── load_config() / save_config()       설정 파일 I/O
-├── run_git()                           git 서브프로세스 래퍼
-├── find_header_row() / load_strings_*  xlsx 파싱
-├── compute_diff()                      변경 사항 계산 (main 기준)
-├── StringDiff                          added / changed / removed 컨테이너
-├── BranchResult                        브랜치별 실행 결과
-├── acquire_lock() / release_lock()     잠금 파일 관리
-├── Propagator                          전파 실행기
-├── PropagatorThread                    Streamlit 비동기 래퍼
-├── Rollbacker                          롤백 실행기 (worktree 방식)
-├── RollbackerThread                    롤백 비동기 래퍼
+├── load_config() / save_config()           설정 파일 I/O
+├── run_git()                               git 서브프로세스 래퍼
+├── find_header_row() / load_strings_*      xlsx 파싱
+├── compute_diff()                          변경 사항 계산 (main 기준)
+├── StringDiff                              added / changed / removed 컨테이너
+├── BranchResult                            브랜치별 실행 결과
+├── acquire_lock() / release_lock()         잠금 파일 관리
+├── Propagator                              전파 실행기 (pull_only 모드 포함)
+├── PropagatorThread                        Streamlit 비동기 래퍼
+├── Rollbacker                              롤백 실행기 (checkout 방식)
+├── RollbackerThread                        롤백 비동기 래퍼
 └── save_rollback_log() / load_rollback_log()  롤백 로그 I/O
 
 app_propagate.py
-├── 설정 섹션                           repo_root, datasheet, sibling_repos, dry_run
-├── 브랜치 선택 섹션                    체크박스, YAML 인라인 편집
-├── 변경 사항 섹션                      diff 표, 새로고침
-├── 커밋 메시지 섹션                    자동 생성 + 직접 편집
-├── 전파 실행 버튼                      PropagatorThread 시작
-├── 진행 상황 섹션                      큐 기반 실시간 로그, 브랜치별 결과
-└── 롤백 섹션                           last_propagation.json 표시, 2단계 확인
+├── 설정 섹션              repo_root, datasheet, sibling_repos, author, dry_run, 💾 저장 버튼, 잠금 감지
+├── 브랜치 선택 섹션       체크박스, YAML 인라인 편집
+├── 변경 사항 섹션         diff 표, 새로고침
+├── 커밋 메시지 섹션       자동 생성 + 직접 편집
+├── 실행 버튼 섹션         🔽 풀 받기 / 🚀 전파 (2버튼 분리)
+├── 진행 상황 섹션         큐 기반 실시간 로그, 브랜치별 결과, 에러 표시
+└── 롤백 섹션              last_propagation.json 표시, 2단계 확인, 진행 로그
 ```

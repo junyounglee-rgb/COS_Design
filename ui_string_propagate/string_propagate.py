@@ -312,6 +312,17 @@ class Propagator:
 
     def run(self) -> list[BranchResult]:
         """동기 실행. threading.Thread에서 호출하면 비동기처럼 동작."""
+        # 검증을 스레드 내부에서 수행 (UI 블로킹 방지)
+        validation_errors = self.validate()
+        if validation_errors:
+            for e in validation_errors:
+                self._log(f"[검증 오류] {e}")
+            self.results = [
+                BranchResult(b, error_stage="검증", error_detail="\n".join(validation_errors))
+                for b in self.branches
+            ]
+            return self.results
+
         try:
             acquire_lock()
             self.results = self._run_inner()
@@ -385,7 +396,7 @@ class Propagator:
 
             # pull
             self._log(f"[{branch}] pull 중...")
-            code, _, err = self._git(["pull", "origin", branch])
+            code, out, err = self._git(["pull", "origin", branch])
             if code != 0:
                 res.error_stage = "git pull"
                 res.error_detail = err
@@ -394,8 +405,15 @@ class Propagator:
 
             # 풀 전용 모드: 여기서 완료
             if self.pull_only:
-                res.success = True
-                self._log(f"[{branch}] pull 완료")
+                already_uptodate = "already up to date" in out.lower()
+                if already_uptodate:
+                    res.success = True
+                    res.skipped = True
+                    res.skip_reason = "이미 최신"
+                    self._log(f"[{branch}] 이미 최신 — 스킵")
+                else:
+                    res.success = True
+                    self._log(f"[{branch}] pull 완료")
                 return res
 
             # xlsx 복사
@@ -603,6 +621,110 @@ class Rollbacker:
             self.log(f"[{branch}] 예외: {e}")
 
         return res
+
+
+# ──────────────────────────────────────────────────────────────
+# 풀 상태 확인
+# ──────────────────────────────────────────────────────────────
+
+@dataclass
+class BranchPullStatus:
+    branch: str
+    behind: int = 0         # 0 = 최신, N > 0 = N커밋 업데이트 있음
+    local_missing: bool = False  # 로컬에 브랜치가 없음 (원격엔 있음)
+    remote_missing: bool = False  # 원격에도 브랜치가 없음
+    error: str = ""
+
+    @property
+    def is_uptodate(self) -> bool:
+        return not self.error and not self.local_missing and not self.remote_missing and self.behind == 0
+
+
+def check_pull_status(
+    repo_root: str,
+    branches: list[str],
+    log_callback: Callable[[str], None] | None = None,
+) -> list[BranchPullStatus]:
+    """git fetch 후 각 브랜치의 원격 업데이트 여부 확인."""
+    log = log_callback or (lambda msg: None)
+    log("origin fetch 중...")
+    code, _, err = run_git(["fetch", "origin"], cwd=repo_root)
+    if code != 0:
+        return [BranchPullStatus(branch=b, error=f"fetch 실패: {err}") for b in branches]
+
+    results = []
+    for branch in branches:
+        # 로컬 브랜치 존재 확인
+        code_local, _, _ = run_git(
+            ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            cwd=repo_root,
+        )
+        # 원격 브랜치 존재 확인 (fetch 후이므로 refs/remotes/origin 사용)
+        code_remote, _, _ = run_git(
+            ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+            cwd=repo_root,
+        )
+
+        if code_remote != 0:
+            # 원격에도 없음
+            s = BranchPullStatus(branch=branch, remote_missing=True)
+            log(f"  {branch}: ⚠️ 원격 브랜치 없음")
+        elif code_local != 0:
+            # 로컬엔 없고 원격엔 있음 → 첫 풀 필요
+            s = BranchPullStatus(branch=branch, local_missing=True)
+            log(f"  {branch}: 🔄 로컬 없음 (첫 풀 필요)")
+        else:
+            # 둘 다 있음 → 커밋 수 비교
+            code, out, err = run_git(
+                ["rev-list", f"{branch}..origin/{branch}", "--count"],
+                cwd=repo_root,
+            )
+            if code != 0:
+                s = BranchPullStatus(branch=branch, error=err or "확인 실패")
+                log(f"  {branch}: ❌ {s.error}")
+            else:
+                try:
+                    behind = int(out.strip())
+                except ValueError:
+                    behind = 0
+                s = BranchPullStatus(branch=branch, behind=behind)
+                if s.is_uptodate:
+                    log(f"  {branch}: ✅ 최신")
+                else:
+                    log(f"  {branch}: 🔄 {s.behind}커밋 업데이트 있음")
+
+        results.append(s)
+
+    return results
+
+
+class StatusCheckerThread:
+    """풀 상태 확인 비동기 래퍼."""
+
+    def __init__(
+        self,
+        repo_root: str,
+        branches: list[str],
+        log_callback: Callable[[str], None] | None = None,
+    ):
+        self._repo_root = repo_root
+        self._branches = branches
+        self._log = log_callback
+        self._thread: threading.Thread | None = None
+        self._done = threading.Event()
+        self.results: list[BranchPullStatus] = []
+
+    def start(self) -> None:
+        self._done.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        self.results = check_pull_status(self._repo_root, self._branches, self._log)
+        self._done.set()
+
+    def is_done(self) -> bool:
+        return self._done.is_set()
 
 
 class RollbackerThread:
