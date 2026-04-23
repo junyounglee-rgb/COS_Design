@@ -1,0 +1,185 @@
+# ISTANBUL_1 parent quests 전체
+총 12건
+  key=73100 count=5 children=[]{73101,73102,73103,73104,73105} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73200 count=5 children=[]{73201,73202,73203,73204,73205} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73300 count=5 children=[]{73301,73302,73303,73304,73305} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73400 count=5 children=[]{73401,73402,73403,73404,73405} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73500 count=5 children=[]{73501,73502,73503,73504,73505} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73600 count=5 children=[]{73601,73602,73603,73604,73605} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=73700 count=5 children=[]{73701,73702,73703,73704,73705} rc_p1=0 rc_p2=1 | desc='전체 퀘스트 완료 보상'
+  key=30016 count=4 children=[]{30017,30018,30019,30020} rc_p1=None rc_p2=None | desc='모든 퀘스트 완료하기'
+  key=40051 count=5 children=[]{40052,40053,40054,40055,40056} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40061 count=5 children=[]{40062,40063,40064,40065,40066} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40071 count=5 children=[]{40072,40073,40074,40075,40076} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40081 count=5 children=[]{40082,40083,40084,40085,40086} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+
+# HELSINKI_3 parent quests 전체
+총 14건
+  key=71100 count=5 children=[]{71101,71102,71103,71104,71105} rc_p1=0 rc_p2=1
+  key=71200 count=5 children=[]{71201,71202,71203,71204,71205} rc_p1=0 rc_p2=1
+  key=71300 count=5 children=[]{71301,71302,71303,71304,71305} rc_p1=0 rc_p2=1
+  key=71400 count=5 children=[]{71401,71402,71403,71404,71405} rc_p1=0 rc_p2=1
+  key=71500 count=5 children=[]{71501,71502,71503,71504,71505} rc_p1=0 rc_p2=1
+  key=71600 count=5 children=[]{71601,71602,71603,71604,71605} rc_p1=0 rc_p2=1
+  key=71700 count=5 children=[]{71701,71702,71703,71704,71705} rc_p1=0 rc_p2=1
+  key=71800 count=5 children=[]{71801,71802,71803,71804,71805} rc_p1=0 rc_p2=1
+  key=71900 count=5 children=[]{71901,71902,71903,71904,71905} rc_p1=0 rc_p2=1
+  key=72000 count=5 children=[]{72001,72002,72003,72004,72005} rc_p1=0 rc_p2=1
+  key=72100 count=5 children=[]{72101,72102,72103,72104,72105} rc_p1=0 rc_p2=1
+  key=72200 count=5 children=[]{72201,72202,72203,72204,72205} rc_p1=0 rc_p2=1
+  key=72300 count=5 children=[]{72301,72302,72303,72304,72305} rc_p1=0 rc_p2=1
+  key=72400 count=5 children=[]{72401,72402,72403,72404,72405} rc_p1=0 rc_p2=1
+
+# LAUNCH_0 parent quests 전체
+총 14건
+  key=100 count=9 children=[]{101,102,103,104,105,106,107,108,109} rc_p1=0 rc_p2=28 | desc='1일차 전체 퀘스트 완료 보상'
+  key=150 count=9 children=[]{151,152,153,154,155,156,157,158,159} rc_p1=1 rc_p2=28 | desc='2일차 전체 퀘스트 완료 보상'
+  key=200 count=9 children=[]{201,202,203,204,205,206,207,208,209} rc_p1=2 rc_p2=28 | desc='3일차 전체 퀘스트 완료 보상'
+  key=250 count=9 children=[]{251,252,253,254,255,256,257,258,259} rc_p1=3 rc_p2=28 | desc='4일차 전체 퀘스트 완료 보상'
+  key=300 count=9 children=[]{301,302,303,304,305,306,307,308,309} rc_p1=4 rc_p2=28 | desc='5일차 전체 퀘스트 완료 보상'
+  key=350 count=9 children=[]{351,352,353,354,355,356,357,358,359} rc_p1=5 rc_p2=28 | desc='6일차 전체 퀘스트 완료 보상'
+  key=400 count=9 children=[]{401,402,403,404,405,406,407,408,409} rc_p1=6 rc_p2=28 | desc='7일차 전체 퀘스트 완료 보상'
+  key=10000 count=5 children=[]{10001,10002,10003,10004,10005} rc_p1=None rc_p2=None | desc='전체 퀘스트 완료 보상'
+  key=20000 count=4 children=[]{20001,20002,20003,20004} rc_p1=None rc_p2=None | desc='모든 미션 클리어'
+  key=30001 count=4 children=[]{30002,30003,30004,30005} rc_p1=None rc_p2=None | desc='모든 퀘스트 완료하기'
+  key=40001 count=5 children=[]{40002,40003,40004,40005,40006} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40011 count=5 children=[]{40012,40013,40014,40015,40016} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40021 count=5 children=[]{40022,40023,40024,40025,40026} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+  key=40031 count=5 children=[]{40032,40033,40034,40035,40036} rc_p1=None rc_p2=None | desc='모든 미션 완료하기'
+
+# reward_condition days_between p2 분포 (이벤트 전체기간)
+  $$LAUNCH_0:
+    from=0 to=28: 10건
+    from=1 to=28: 10건
+    from=2 to=28: 10건
+    from=3 to=28: 10건
+    from=4 to=28: 10건
+    from=5 to=28: 10건
+    from=6 to=28: 10건
+  $$HELSINKI_3:
+    from=0 to=1: 84건
+  $$ISTANBUL_1:
+    from=0 to=1: 42건
+
+# ISTANBUL_1 parent별 child 확인 (실제 key 존재 여부)
+  parent=73100 children_declared=[73101, 73102, 73103, 73104, 73105] exist_in_filter=5/5
+  parent=73200 children_declared=[73201, 73202, 73203, 73204, 73205] exist_in_filter=5/5
+  parent=73300 children_declared=[73301, 73302, 73303, 73304, 73305] exist_in_filter=5/5
+  parent=73400 children_declared=[73401, 73402, 73403, 73404, 73405] exist_in_filter=5/5
+  parent=73500 children_declared=[73501, 73502, 73503, 73504, 73505] exist_in_filter=5/5
+  parent=73600 children_declared=[73601, 73602, 73603, 73604, 73605] exist_in_filter=5/5
+  parent=73700 children_declared=[73701, 73702, 73703, 73704, 73705] exist_in_filter=5/5
+  parent=30016 children_declared=[30017, 30018, 30019, 30020] exist_in_filter=4/4
+  parent=40051 children_declared=[40052, 40053, 40054, 40055, 40056] exist_in_filter=5/5
+  parent=40061 children_declared=[40062, 40063, 40064, 40065, 40066] exist_in_filter=5/5
+  parent=40071 children_declared=[40072, 40073, 40074, 40075, 40076] exist_in_filter=5/5
+  parent=40081 children_declared=[40082, 40083, 40084, 40085, 40086] exist_in_filter=5/5
+
+# count_type 전체 분포
+Counter({'QUEST_COUNT_TYPE_SUM': 1056, 'QUEST_COUNT_TYPE_HIGHEST': 96})
+
+# DAILY reset 퀘스트의 parent (reward_quest) 상세
+총 10건
+  key=30001 filt=$$LAUNCH_0 count=4 children=[]{30002,30003,30004,30005} | desc='모든 퀘스트 완료하기'
+  key=30016 filt=$$ISTANBUL_1 count=4 children=[]{30017,30018,30019,30020} | desc='모든 퀘스트 완료하기'
+  key=40001 filt=$$LAUNCH_0 count=5 children=[]{40002,40003,40004,40005,40006} | desc='모든 미션 완료하기'
+  key=40011 filt=$$LAUNCH_0 count=5 children=[]{40012,40013,40014,40015,40016} | desc='모든 미션 완료하기'
+  key=40021 filt=$$LAUNCH_0 count=5 children=[]{40022,40023,40024,40025,40026} | desc='모든 미션 완료하기'
+  key=40031 filt=$$LAUNCH_0 count=5 children=[]{40032,40033,40034,40035,40036} | desc='모든 미션 완료하기'
+  key=40051 filt=$$ISTANBUL_1 count=5 children=[]{40052,40053,40054,40055,40056} | desc='모든 미션 완료하기'
+  key=40061 filt=$$ISTANBUL_1 count=5 children=[]{40062,40063,40064,40065,40066} | desc='모든 미션 완료하기'
+  key=40071 filt=$$ISTANBUL_1 count=5 children=[]{40072,40073,40074,40075,40076} | desc='모든 미션 완료하기'
+  key=40081 filt=$$ISTANBUL_1 count=5 children=[]{40082,40083,40084,40085,40086} | desc='모든 미션 완료하기'
+
+# LAUNCH_0 key range 분포
+  31~35 (5건)
+  100~109 (10건)
+  150~159 (10건)
+  200~209 (10건)
+  250~259 (10건)
+  300~309 (10건)
+  350~359 (10건)
+  400~409 (10건)
+  5600~5604 (5건)
+  10000~10075 (76건)
+  20000~20004 (5건)
+  30001~30015 (15건)
+  40001~40036 (36건)
+  60001~60105 (105건)
+  11000190110~11000190350 (241건)
+  11000190380~11000190520 (141건)
+  11005590110~11005590350 (241건)
+  11005590380~11005590520 (141건)
+  11012190030~11012190030 (1건)
+  11012190110~11012190350 (241건)
+  11012190380~11012190520 (141건)
+  11051190110~11051190350 (241건)
+  11051190380~11051190520 (141건)
+  11051590110~11051590350 (241건)
+  11051590380~11051590520 (141건)
+  11051690110~11051690360 (251건)
+  11051690380~11051690520 (141건)
+  11051890110~11051890360 (251건)
+  11051890380~11051890520 (141건)
+  11052190110~11052190350 (241건)
+  11052190380~11052190520 (141건)
+
+# DAILY 퀘스트 parent-child 상세 (LAUNCH_0)
+총 32건
+  key=30001 goal=reward_quest:ref_quest_ids p1=[]{30002,30003,30004,30005} target=4 cnt=QUEST_COUNT_TYPE_HIGHEST | desc='모든 퀘스트 완료하기'
+  key=30002 goal=play p1=None target=1 cnt=QUEST_COUNT_TYPE_SUM | desc='친구와 파티 상태에서 {0}회 플레이하기'
+  key=30003 goal=invite_code_share:ref_event_id p1=1 target=1 cnt=QUEST_COUNT_TYPE_SUM | desc='초대 코드 {0}회 공유하기'
+  key=30004 goal=play p1=None target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='상시 모드에서 {0}번 플레이하기'
+  key=30005 goal=play_report:key p1=PLAY_REPORT_KEY_ULTIMATE_SKILL_USAGE_COUNT target=5 cnt=QUEST_COUNT_TYPE_SUM | desc='궁극기 {0}회 사용하기'
+  key=30006 goal=daily_login p1=None target=1 cnt=QUEST_COUNT_TYPE_SUM | desc='게임 접속 하기'
+  key=30007 goal=play:need_win p1=True target=1 cnt=QUEST_COUNT_TYPE_SUM | desc='아무 모드에서나 {0}번 승리하기'
+  key=30008 goal=play_report:key p1=PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT target=10 cnt=QUEST_COUNT_TYPE_SUM | desc='특수스킬 {0}회 사용하기'
+  key=40001 goal=reward_quest:ref_quest_ids p1=[]{40002,40003,40004,40005,40006} target=5 cnt=QUEST_COUNT_TYPE_HIGHEST | desc='모든 미션 완료하기'
+  key=40002 goal=play:need_win p1=True target=2 cnt=QUEST_COUNT_TYPE_SUM | desc='아무 모드에서나 {0}번 승리하기'
+  key=40003 goal=play_report:key p1=PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='스펠카드 {0}회 사용하기'
+  key=40004 goal=play p1=None target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='로테이션 모드 {0}회 플레이하기'
+  key=40005 goal=use_item:ref_item_id p1=1 target=5000 cnt=QUEST_COUNT_TYPE_SUM | desc='코인 {0}개 소모하기'
+  key=40006 goal=open_battle_box:box_type p1=BOX_TYPE_BATTLE target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='배틀박스 {0}개 열기'
+  key=40011 goal=reward_quest:ref_quest_ids p1=[]{40012,40013,40014,40015,40016} target=5 cnt=QUEST_COUNT_TYPE_HIGHEST | desc='모든 미션 완료하기'
+  key=40012 goal=play:need_win p1=True target=2 cnt=QUEST_COUNT_TYPE_SUM | desc='아무 모드에서나 {0}번 승리하기'
+  key=40013 goal=play_report:key p1=PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='스펠카드 {0}회 사용하기'
+  key=40014 goal=play p1=None target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='로테이션 모드 {0}회 플레이하기'
+  key=40015 goal=use_item:ref_item_id p1=1 target=5000 cnt=QUEST_COUNT_TYPE_SUM | desc='코인 {0}개 소모하기'
+  key=40016 goal=open_battle_box:box_type p1=BOX_TYPE_BATTLE target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='배틀박스 {0}개 열기'
+  key=40021 goal=reward_quest:ref_quest_ids p1=[]{40022,40023,40024,40025,40026} target=5 cnt=QUEST_COUNT_TYPE_HIGHEST | desc='모든 미션 완료하기'
+  key=40022 goal=play:need_win p1=True target=2 cnt=QUEST_COUNT_TYPE_SUM | desc='아무 모드에서나 {0}번 승리하기'
+  key=40023 goal=play_report:key p1=PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='스펠카드 {0}회 사용하기'
+  key=40024 goal=play p1=None target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='로테이션 모드 {0}회 플레이하기'
+  key=40025 goal=use_item:ref_item_id p1=1 target=5000 cnt=QUEST_COUNT_TYPE_SUM | desc='코인 {0}개 소모하기'
+  key=40026 goal=open_battle_box:box_type p1=BOX_TYPE_BATTLE target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='배틀박스 {0}개 열기'
+  key=40031 goal=reward_quest:ref_quest_ids p1=[]{40032,40033,40034,40035,40036} target=5 cnt=QUEST_COUNT_TYPE_HIGHEST | desc='모든 미션 완료하기'
+  key=40032 goal=play:need_win p1=True target=2 cnt=QUEST_COUNT_TYPE_SUM | desc='아무 모드에서나 {0}번 승리하기'
+  key=40033 goal=play_report:key p1=PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='스펠카드 {0}회 사용하기'
+  key=40034 goal=play p1=None target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='로테이션 모드 {0}회 플레이하기'
+  key=40035 goal=use_item:ref_item_id p1=1 target=5000 cnt=QUEST_COUNT_TYPE_SUM | desc='코인 {0}개 소모하기'
+  key=40036 goal=open_battle_box:box_type p1=BOX_TYPE_BATTLE target=3 cnt=QUEST_COUNT_TYPE_SUM | desc='배틀박스 {0}개 열기'
+
+# TOWN+LAUNCH_0 퀘스트의 cond0 분포
+총 328건
+cond0 분포: Counter({'finish_town_dialog:dialog_group_id': 328})
+goal 분포: Counter({'play_report:key': 129, 'play:need_win': 48, 'play': 47, 'get_ovencrown': 35, 'pull_gacha:gacha_type': 21, 'open_battle_box:box_type': 17, 'town_use_landmark:ref_landmark_id': 11, 'achieve_smash_level': 7, 'get_smash_pass_exp': 6, 'town_finish_dialog:ref_dialog_group_id': 3, 'achieve_cookie_level_all': 2, 'send_friend_request': 1, 'have_power_sand:ref_power_sand_id': 1})
+town_cat 분포: Counter({'TOWN_CATEGORY_INGAME': 263, 'TOWN_CATEGORY_OUTGAME': 65})
+reward_cond 분포: Counter({None: 328})
+
+# TOWN+NONE 추가 샘플 (cond0별로)
+
+## cond0=finish_town_dialog:dialog_group_id (268건)
+  [500001] goal=play:need_win p1=True | target=1 cnt=QUEST_COUNT_TYPE_SUM | tcat=TOWN_CATEGORY_INGAME | cond0_p1=500001 cond0_p2=None | r_id=10 qty=50
+  [500002] goal=play:need_win p1=True | target=1 cnt=QUEST_COUNT_TYPE_SUM | tcat=TOWN_CATEGORY_INGAME | cond0_p1=500002 cond0_p2=None | r_id=1 qty=1000
+  [500003] goal=town_finish_dialog:ref_dialog_group_id p1=500004 | target=1 cnt=QUEST_COUNT_TYPE_SUM | tcat=TOWN_CATEGORY_OUTGAME | cond0_p1=500003 cond0_p2=None | r_id=10 qty=33
+
+# VAULT_MISSION 여부
+총 0건
+
+# filter별 ^key 분포
+  $$LAUNCH_0: 541건, min=31, max=11052190520
+  $$HELSINKI_3: 164건, min=2001, max=72405
+  $$ISTANBUL_1: 153건, min=10081, max=73705
+  $$ISTANBUL_3: 12건, min=10131, max=1010507
+  $$DEV: 14건, min=51001, max=51014
+  $$NONE: 268건, min=810, max=11300990100

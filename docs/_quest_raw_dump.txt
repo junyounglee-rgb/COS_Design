@@ -1,0 +1,160 @@
+
+############################
+# ISTANBUL_1 전체 퀘스트
+############################
+총 153건
+  [73100] reset=None cnt=QUEST_COUNT_TYPE_HIGHEST goal=5 | goal=reward_quest:ref_quest_ids p1=[]{73101,73102,73103,73104,73105} | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | expiry=None,None | oqc=None | desc='전체 퀘스트 완료 보상'
+  [73101] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play p1=None | rc=days_between:from,to rc_p1=0 | r_id=1111040 qty=1 | expiry=None,None | oqc=None | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [73102] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=4 | goal=play:need_win p1=True | rc=days_between:from,to rc_p1=0 | r_id=1121020 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [73103] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=25 | goal=play_report:key p1=PLAY_REPORT_KEY_KILL_COUNT | rc=days_between:from,to rc_p1=0 | r_id=10 qty=300 | expiry=None,None | oqc=None | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [73104] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=50000 | goal=play_report:key p1=PLAY_REPORT_KEY_ULTIMATE_DAMAGE | rc=days_between:from,to rc_p1=0 | r_id=1 qty=3000 | expiry=None,None | oqc=None | desc='<color=#ffe535>궁극기 피해량 {0} 달성</color> 하기'
+  [73105] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=100 | goal=get_ovencrown p1=None | rc=days_between:from,to rc_p1=0 | r_id=1311010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>오븐크라운 획득 {0} 달성</color>하기'
+  [73200] reset=None cnt=QUEST_COUNT_TYPE_HIGHEST goal=5 | goal=reward_quest:ref_quest_ids p1=[]{73201,73202,73203,73204,73205} | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | expiry=None,None | oqc=None | desc='전체 퀘스트 완료 보상'
+  [73201] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play p1=None | rc=days_between:from,to rc_p1=0 | r_id=1111040 qty=1 | expiry=None,None | oqc=None | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [73202] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=4 | goal=play:need_win p1=True | rc=days_between:from,to rc_p1=0 | r_id=1131010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [73203] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=250000 | goal=play_report:key p1=PLAY_REPORT_KEY_DAMAGE_SUM | rc=days_between:from,to rc_p1=0 | r_id=1000110 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>누적피해 {0} 달성</color>하기'
+  [73204] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=60 | goal=play_report:key p1=PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT | rc=days_between:from,to rc_p1=0 | r_id=1 qty=3000 | expiry=None,None | oqc=None | desc='<color=#ffe535>특수스킬 {0}회 </color>사용하기'
+  [73205] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=5 | goal=open_battle_box:box_type p1=BOX_TYPE_BATTLE | rc=days_between:from,to rc_p1=0 | r_id=1311010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>배틀박스 {0}회 </color>열기'
+  [73300] reset=None cnt=QUEST_COUNT_TYPE_HIGHEST goal=5 | goal=reward_quest:ref_quest_ids p1=[]{73301,73302,73303,73304,73305} | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | expiry=None,None | oqc=None | desc='전체 퀘스트 완료 보상'
+  [73301] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play p1=None | rc=days_between:from,to rc_p1=0 | r_id=1121020 qty=1 | expiry=None,None | oqc=None | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [73302] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=4 | goal=play:need_win p1=True | rc=days_between:from,to rc_p1=0 | r_id=1131010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [73303] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=25 | goal=play_report:key p1=PLAY_REPORT_KEY_KILL_COUNT | rc=days_between:from,to rc_p1=0 | r_id=10 qty=300 | expiry=None,None | oqc=None | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [73304] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play_report:key p1=PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT | rc=days_between:from,to rc_p1=0 | r_id=1 qty=3000 | expiry=None,None | oqc=None | desc='<color=#ffe535>스펠카드 {0}회 사용</color>'
+  [73305] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=1 | goal=play_report:key p1=PLAY_REPORT_KEY_EMOJI_USAGE_COUNT | rc=days_between:from,to rc_p1=0 | r_id=1311010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>전투 중에 이모지 {0}회</color> 사용하기'
+  [73400] reset=None cnt=QUEST_COUNT_TYPE_HIGHEST goal=5 | goal=reward_quest:ref_quest_ids p1=[]{73401,73402,73403,73404,73405} | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | expiry=None,None | oqc=None | desc='전체 퀘스트 완료 보상'
+  [73401] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play p1=None | rc=days_between:from,to rc_p1=0 | r_id=1111040 qty=1 | expiry=None,None | oqc=None | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [73402] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=4 | goal=play:need_win p1=True | rc=days_between:from,to rc_p1=0 | r_id=1121020 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [73403] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=250000 | goal=play_report:key p1=PLAY_REPORT_KEY_DAMAGE_SUM | rc=days_between:from,to rc_p1=0 | r_id=1000110 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>누적피해 {0} 달성</color>하기'
+  [73404] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=40 | goal=play_report:key p1=PLAY_REPORT_KEY_ULTIMATE_SKILL_USAGE_COUNT | rc=days_between:from,to rc_p1=0 | r_id=1 qty=3000 | expiry=None,None | oqc=None | desc='<color=#ffe535>궁극기 {0}회 </color>사용하기'
+  [73405] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=1 | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_GACHA | rc=days_between:from,to rc_p1=0 | r_id=1311010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>쿠키 종합/확률업 소환 {0}회 </color>이용하기'
+  [73500] reset=None cnt=QUEST_COUNT_TYPE_HIGHEST goal=5 | goal=reward_quest:ref_quest_ids p1=[]{73501,73502,73503,73504,73505} | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | expiry=None,None | oqc=None | desc='전체 퀘스트 완료 보상'
+  [73501] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=8 | goal=play p1=None | rc=days_between:from,to rc_p1=0 | r_id=1111040 qty=1 | expiry=None,None | oqc=None | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [73502] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=4 | goal=play:need_win p1=True | rc=days_between:from,to rc_p1=0 | r_id=1131010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [73503] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=25 | goal=play_report:key p1=PLAY_REPORT_KEY_KILL_COUNT | rc=days_between:from,to rc_p1=0 | r_id=10 qty=300 | expiry=None,None | oqc=None | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [73504] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=60 | goal=play_report:key p1=PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT | rc=days_between:from,to rc_p1=0 | r_id=1 qty=3000 | expiry=None,None | oqc=None | desc='<color=#ffe535>특수스킬 {0}회 </color>사용하기'
+  [73505] reset=None cnt=QUEST_COUNT_TYPE_SUM goal=100 | goal=get_ovencrown p1=None | rc=days_between:from,to rc_p1=0 | r_id=1311010 qty=1 | expiry=None,None | oqc=None | desc='<color=#ffe535>오븐크라운 획득 {0} 달성</color>하기'
+
+############################
+# LAUNCH_0 - Day 1 (key 100~109)
+############################
+  [100] cat=QUEST_CATEGORY_GENERAL reset=None | goal=reward_quest:ref_quest_ids p1=[]{101,102,103,104,105,106,107,108,109} p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=8001 qty=1 | desc='1일차 전체 퀘스트 완료 보상'
+  [101] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play p1=None p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=1111020 qty=1 | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [102] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play:need_win p1=True p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=1121010 qty=1 | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [103] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play_report:key p1=PLAY_REPORT_KEY_KILL_COUNT p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=1131005 qty=1 | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [104] cat=QUEST_CATEGORY_GENERAL reset=None | goal=have_highest_normal_ovencrown p1=None p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=1321010 qty=1 | desc='오븐크라운 로드 {0}점 달성'
+  [105] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play_report:key p1=PLAY_REPORT_KEY_DAMAGE_SUM p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=1000110 qty=1 | desc='<color=#ffe535>누적피해 {0} 달성</color>하기'
+  [106] cat=QUEST_CATEGORY_GENERAL reset=None | goal=daily_login p1=None p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=20001 qty=1 | desc='게임 접속하기'
+  [107] cat=QUEST_CATEGORY_GENERAL reset=None | goal=send_friend_request p1=None p2=None | cond0=None cond0_p1=None | rc=days_between:from,to rc_p1=0 | r_id=30 qty=300 | desc='<color=#ffe535>친구 신청 {0}회</color> 보내기'
+  [108] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play:need_win p1=True p2=None | cond0=play_with_cookie:ref_cookie_id cond0_p1=113003 | rc=days_between:from,to rc_p1=0 | r_id=13003 qty=20 | desc='<color=#ffe535>후르츠펀치맛 쿠키로 {0}회 전투 승리</color>하기'
+  [109] cat=QUEST_CATEGORY_GENERAL reset=None | goal=play:need_win p1=True p2=None | cond0=play_with_cookie:ref_cookie_id cond0_p1=113001 | rc=days_between:from,to rc_p1=0 | r_id=13001 qty=10 | desc='<color=#ffe535>메론소다맛 쿠키로 {0}회 전투 승리</color> 하기'
+
+############################
+# TOWN 퀘스트 샘플 (NONE filter - 상시)
+############################
+총 268건
+  [500001] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_BaconRoll ttitle=퀘스트 더미 1 tdesc=더미 퀘스트 텍스트 입니다 | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=10 qty=50 oqc=None,None,None
+  [500002] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용쿠 퀘스트 더미 2 tdesc=더미 퀘스트 텍스트 입니다. 용쿠가 줬습니다 | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=1000 oqc=None,None,None
+  [500003] tcat=TOWN_CATEGORY_OUTGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용쿠 퀘스트 더미 3 tdesc=None | goal=town_finish_dialog:ref_dialog_group_id p1=500004 cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=10 qty=33 oqc=None,None,None
+  [500005] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용쿠 퀘스트 더미 4 tdesc=더미 퀘스트 텍스트 입니다. 용쿠한테 말걸고 새로받았습니다. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=5 | r_id=1 qty=150 oqc=None,None,None
+  [11000190010] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용감한 전망 tdesc=용감한 쿠키는 당신이 전망대에 다녀오길 바라고 있다. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=150 oqc=None,None,None
+  [11000190020] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용감한 전투 tdesc=용감한 쿠키는 당신이 전투를 통해 더 신나는 모험을 경험하기를 바라고 있다. 전투를 완료하자. | goal=play p1=None cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=100 oqc=None,None,None
+  [11000190030] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=꼬르륵, 반죽 시계 tdesc=용감한 쿠키는 배가 고픈 것 같다. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=100 oqc=None,None,None
+  [11000190040] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용감하게 승리! tdesc=용감한 쿠키는 당신이 전투를 통해 더 강해지기를 바라고 있다. 전투를 승리하자. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=100 oqc=None,None,None
+  [11000190050] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=용감하게, 달콤하게 tdesc=용감한 쿠키는 목이 마른 것 같다. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=100 oqc=None,None,None
+  [11000190060] tcat=TOWN_CATEGORY_INGAME ticon=Icon_Mini_CH_GingerBrave ttitle=승리를 향한 일격! tdesc=용감한 쿠키는 당신이 전투를 통해 스스로를 단련해 보기를 바라고 있다. 전투를 승리하자. | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | r_id=1 qty=100 oqc=None,None,None
+
+############################
+# TOWN LAUNCH_0 (328건)
+############################
+총 328건
+  [11012190030] tcat=TOWN_CATEGORY_INGAME ttitle=두둑한 주머니?! tdesc=칠리맛 쿠키는 용감한 쿠키의 주머니가 두둑하다고 생각하고 있다. 용감한  | goal=town_finish_dialog:ref_dialog_group_id p1=11012190031 | r_id=1 qty=100
+  [11051690110] tcat=TOWN_CATEGORY_INGAME ttitle=선생님의 예절 수업 tdesc=라떼맛 쿠키는 칠리맛 쿠키에게 하고 싶은 말이 있는 것 같다. 칠리맛 쿠 | goal=town_finish_dialog:ref_dialog_group_id p1=11051690111 | r_id=1 qty=100
+  [11051890110] tcat=TOWN_CATEGORY_INGAME ttitle=빛나는 원리 tdesc=딸기크레페맛 쿠키는 마들렌맛 쿠키에게 궁금한 것이 있는 것 같다. 마들렌 | goal=town_finish_dialog:ref_dialog_group_id p1=11051890111 | r_id=1 qty=100
+  [5600] tcat=TOWN_CATEGORY_OUTGAME ttitle=다다익선! tdesc=칠리맛 쿠키는 주머니를 털 쿠키가 별로 없는게 신경쓰이는 것 같다. | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_GACHA | r_id=1 qty=1000
+  [5601] tcat=TOWN_CATEGORY_OUTGAME ttitle=부딪칠 용기! tdesc=용감한 쿠키는 당신이 전투를 경험해 보길 바라고 있다. | goal=play p1=None | r_id=1111040 qty=1
+  [5602] tcat=TOWN_CATEGORY_OUTGAME ttitle=성장하는 즐거움 tdesc=라떼맛 쿠키는 당신이 어느 순간 스스로 성장했음을 느끼길 바라고 있다. | goal=achieve_smash_level p1=None | r_id=10 qty=100
+  [5603] tcat=TOWN_CATEGORY_OUTGAME ttitle=기분 전환 tdesc=딸기크레페맛 쿠키는 당신이 기분 전환을 해보길 바라고 있다. | goal=pull_gacha:gacha_type p1=GACHA_TYPE_TREND_GACHA | r_id=1 qty=2000
+  [5604] tcat=TOWN_CATEGORY_OUTGAME ttitle=더 멋지고 강하게! tdesc=마들렌맛 쿠키는 당신이 여러 번의 전투를 통해 스스로가 더 강해진 것을  | goal=get_smash_pass_exp p1=None | r_id=30 qty=300
+  [11052190110] tcat=TOWN_CATEGORY_INGAME ttitle=벨벳케이크맛 쿠키의 훈련 tdesc=벨벳케이크맛 쿠키는 더 나은 전투 방법에 대해 생각하고 있다. | goal=play_report:key p1=PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT | r_id=1 qty=1000
+  [11052190120] tcat=TOWN_CATEGORY_OUTGAME ttitle=벨벳케이크맛 쿠키의 훈련 tdesc=벨벳케이크맛 쿠키는 수련의 결실에 대해 생각하고 있다. | goal=get_smash_pass_exp p1=None | r_id=805030 qty=1
+
+############################
+# DAILY 퀘스트 샘플
+############################
+총 74건, filter 분포:
+Counter({'$$ISTANBUL_1': 37, '$$LAUNCH_0': 32, '$$DEV': 5})
+  [30001] $$LAUNCH_0 | goal=reward_quest:ref_quest_ids p1=[]{30002,30003,30004,30005} cnt=QUEST_COUNT_TYPE_HIGHEST target=4 | desc='모든 퀘스트 완료하기'
+  [30002] $$LAUNCH_0 | goal=play p1=None cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='친구와 파티 상태에서 {0}회 플레이하기'
+  [30003] $$LAUNCH_0 | goal=invite_code_share:ref_event_id p1=1 cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='초대 코드 {0}회 공유하기'
+  [30004] $$LAUNCH_0 | goal=play p1=None cnt=QUEST_COUNT_TYPE_SUM target=3 | desc='상시 모드에서 {0}번 플레이하기'
+  [30005] $$LAUNCH_0 | goal=play_report:key p1=PLAY_REPORT_KEY_ULTIMATE_SKILL_USAGE_COUNT cnt=QUEST_COUNT_TYPE_SUM target=5 | desc='궁극기 {0}회 사용하기'
+  [30006] $$LAUNCH_0 | goal=daily_login p1=None cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='게임 접속 하기'
+  [30007] $$LAUNCH_0 | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='아무 모드에서나 {0}번 승리하기'
+  [30008] $$LAUNCH_0 | goal=play_report:key p1=PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT cnt=QUEST_COUNT_TYPE_SUM target=10 | desc='특수스킬 {0}회 사용하기'
+  [30016] $$ISTANBUL_1 | goal=reward_quest:ref_quest_ids p1=[]{30017,30018,30019,30020} cnt=QUEST_COUNT_TYPE_HIGHEST target=4 | desc='모든 퀘스트 완료하기'
+  [30017] $$ISTANBUL_1 | goal=play p1=None cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='친구와 파티 상태에서 {0}회 플레이하기'
+  [30018] $$ISTANBUL_1 | goal=invite_code_share:ref_event_id p1=700 cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='초대 코드 {0}회 공유하기'
+  [30019] $$ISTANBUL_1 | goal=play p1=None cnt=QUEST_COUNT_TYPE_SUM target=3 | desc='상시 모드에서 {0}번 플레이하기'
+  [30020] $$ISTANBUL_1 | goal=play_report:key p1=PLAY_REPORT_KEY_ULTIMATE_SKILL_USAGE_COUNT cnt=QUEST_COUNT_TYPE_SUM target=10 | desc='궁극기 {0}회 사용하기'
+  [30021] $$ISTANBUL_1 | goal=daily_login p1=None cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='게임 접속 하기'
+  [30022] $$ISTANBUL_1 | goal=play:need_win p1=True cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='아무 모드에서나 {0}번 승리하기'
+
+############################
+# REPEAT 퀘스트
+############################
+총 6건
+  [50008] $$ISTANBUL_1 | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_REMIX_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='쿠키 리믹스 소환 {0}회 이용하기'
+  [50009] $$ISTANBUL_1 | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_TREND_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=5 | desc='<color=#ffe535>코스튬 뽑기 {0}회 </color> 이용하기'
+  [50010] $$ISTANBUL_1 | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=5 | desc='<color=#ffe535>쿠키 종합/확률업 소환 {0}회 </color>이용하기'
+  [51008] $$DEV | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_REMIX_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=1 | desc='쿠키 리믹스 소환 {0}회 이용하기'
+  [51009] $$DEV | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_TREND_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=5 | desc='코스튬 뽑기 {0}회 이용하기'
+  [51010] $$DEV | cond0=None p1=None p2=None | goal=pull_gacha:gacha_type p1=GACHA_TYPE_COOKIE_GACHA | cnt=QUEST_COUNT_TYPE_SUM target=5 | desc='쿠키 종합 소환 {0}회 이용하기'
+
+############################
+# on_quest_completed 사용 샘플
+############################
+총 5건
+oqc 타입 분포: {'call_devplay_cgp_mission_complete:promotion_condition_ids': 5}
+  [20000] oqc_key=call_devplay_cgp_mission_complete:promotion_condition_ids p1=[]{"cos-cgp-mission-5"} p2=None p3=None p4=None
+  [20001] oqc_key=call_devplay_cgp_mission_complete:promotion_condition_ids p1=[]{"cos-cgp-mission-1"} p2=None p3=None p4=None
+  [20002] oqc_key=call_devplay_cgp_mission_complete:promotion_condition_ids p1=[]{"cos-cgp-mission-2"} p2=None p3=None p4=None
+  [20003] oqc_key=call_devplay_cgp_mission_complete:promotion_condition_ids p1=[]{"cos-cgp-mission-3"} p2=None p3=None p4=None
+  [20004] oqc_key=call_devplay_cgp_mission_complete:promotion_condition_ids p1=[]{"cos-cgp-mission-4"} p2=None p3=None p4=None
+
+############################
+# reward_condition 사용 샘플
+############################
+총 196건
+rc 타입 분포: {'days_between:from,to': 196}
+  [100] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='1일차 전체 퀘스트 완료 보상'
+  [101] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [102] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [103] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [104] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='오븐크라운 로드 {0}점 달성'
+  [105] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>누적피해 {0} 달성</color>하기'
+  [106] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='게임 접속하기'
+  [107] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>친구 신청 {0}회</color> 보내기'
+  [108] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>후르츠펀치맛 쿠키로 {0}회 전투 승리</color>하기'
+  [109] $$LAUNCH_0 rc_key=days_between:from,to p1=0 p2=28 | desc='<color=#ffe535>메론소다맛 쿠키로 {0}회 전투 승리</color> 하기'
+  [150] $$LAUNCH_0 rc_key=days_between:from,to p1=1 p2=28 | desc='2일차 전체 퀘스트 완료 보상'
+  [151] $$LAUNCH_0 rc_key=days_between:from,to p1=1 p2=28 | desc='아무 모드나 <color=#ffe535>{0}회 플레이</color>하기'
+  [152] $$LAUNCH_0 rc_key=days_between:from,to p1=1 p2=28 | desc='<color=#ffe535>{0}회 전투 승리</color>하기'
+  [153] $$LAUNCH_0 rc_key=days_between:from,to p1=1 p2=28 | desc='<color=#ffe535>적 {0}회 처치 </color>달성하기'
+  [154] $$LAUNCH_0 rc_key=days_between:from,to p1=1 p2=28 | desc='오븐크라운 로드 {0}점 달성'
+
+############################
+# condition0 타입 분포
+############################
+  finish_town_dialog:dialog_group_id: 596
+  play_mode_id:mode_ids: 45
+  play_mode_category:ref_display_category_id: 15
+  play_mode:mode_type: 5
+  play_with_cookie:ref_cookie_id: 4
+  play_with_party:player_count: 4
+  play_with_friend: 2
+
+############################
+# reward_expiry 사용
+############################
+총 0건, 타입 분포:
+Counter()
