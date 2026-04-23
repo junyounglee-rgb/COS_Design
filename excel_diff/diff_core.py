@@ -71,11 +71,19 @@ def _read_sheet_data(ws) -> dict[tuple[int, int], str]:
     return data
 
 
-def _get_headers(ws) -> dict[int, str]:
-    """첫 번째 행에서 컬럼 헤더 추출"""
+def _detect_header_row(sheet_name: str) -> int:
+    """
+    시트명에 '#'이 포함되면 1행이 헤더 (현재 동작 유지).
+    그 외(일반 게임 데이터 시트)는 3행이 헤더 — 1·2행은 주석/경로 메타 행.
+    """
+    return 1 if "#" in sheet_name else 3
+
+
+def _get_headers(ws, header_row: int = 1) -> dict[int, str]:
+    """지정된 행에서 컬럼 헤더 추출"""
     headers: dict[int, str] = {}
     try:
-        for cell in next(ws.iter_rows(min_row=1, max_row=1)):
+        for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row)):
             if cell.value is not None:
                 headers[cell.column] = str(cell.value)
     except StopIteration:
@@ -93,8 +101,9 @@ def _align_rows(
     반환: (old_row|None, new_row|None) 쌍 목록.
     None = 해당 쪽에 없는 행 (삽입 또는 삭제).
     """
-    old_rows = sorted(set(r for r, c in old_data if r != header_row))
-    new_rows = sorted(set(r for r, c in new_data if r != header_row))
+    # header_row 이하(메타 행 포함) 전부 제외
+    old_rows = sorted(set(r for r, c in old_data if r > header_row))
+    new_rows = sorted(set(r for r, c in new_data if r > header_row))
 
     def row_key(data: dict, row: int) -> tuple:
         cols = sorted(c for r, c in data if r == row)
@@ -324,12 +333,14 @@ def compare_xlsx_side_by_side(
 
         old_data = _read_sheet_data(old_ws) if old_ws else {}
         new_data = _read_sheet_data(new_ws) if new_ws else {}
-        headers  = (
-            _get_headers(new_ws) if new_ws
-            else (_get_headers(old_ws) if old_ws else {})
+
+        header_row = _detect_header_row(sheet_name)
+        headers = (
+            _get_headers(new_ws, header_row) if new_ws
+            else (_get_headers(old_ws, header_row) if old_ws else {})
         )
 
-        aligned = _align_rows(old_data, new_data)
+        aligned = _align_rows(old_data, new_data, header_row=header_row)
 
         changed_pairs: list[tuple[int | None, int | None]] = []
         for old_r, new_r in aligned:
