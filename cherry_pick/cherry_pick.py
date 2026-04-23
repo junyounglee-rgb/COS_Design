@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
 
+import streamlit as st
 import yaml
 from openpyxl import load_workbook
 
@@ -243,15 +244,28 @@ class CherryPickPropagator:
         commit_hash: str,
         targets: list[str],
         log_queue: queue.Queue,
+        custom_message: str | None = None,
     ):
         self.repo_path = repo_path
         self.commit_hash = commit_hash
         self.targets = targets
         self.log_queue = log_queue
+        self.custom_message = custom_message
         self.results: list[BranchResult] = []
 
     def log(self, msg: str) -> None:
         self.log_queue.put(msg)
+
+    def _amend_message(self) -> None:
+        """custom_message가 있으면 직전 커밋 메시지를 amend로 덮어씀."""
+        if not self.custom_message:
+            return
+        code_a, _, err_a = run_git(
+            ["commit", "--amend", "-m", self.custom_message],
+            cwd=self.repo_path,
+        )
+        if code_a != 0:
+            self.log(f"  ⚠️ 메시지 수정 실패: {err_a}")
 
     def run(self) -> None:
         orig = current_branch(self.repo_path)
@@ -308,6 +322,7 @@ class CherryPickPropagator:
             )
             result.new_commit = new_hash
             self.log(f"  ✅ cherry-pick 성공 [{new_hash}]")
+            self._amend_message()
         else:
             combined = (out + err).lower()
 
@@ -334,6 +349,7 @@ class CherryPickPropagator:
                     )
                     result.new_commit = new_hash
                     self.log(f"  ✅ 충돌 자동 해결 후 성공 [{new_hash}]")
+                    self._amend_message()
                 else:
                     run_git(["cherry-pick", "--abort"], cwd=self.repo_path)
                     result.status = "failed"
@@ -432,17 +448,41 @@ def run_git_binary(args: list[str], cwd: str) -> tuple[int, bytes]:
     return result.returncode, result.stdout
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_xlsx_bytes(repo_path: str, ref: str, xlsx_path: str) -> Optional[bytes]:
+    """git ref에서 xlsx 바이너리를 추출하여 캐싱 (5분 TTL)"""
+    code, data = run_git_binary(["show", f"{ref}:{xlsx_path}"], cwd=repo_path)
+    if code != 0 or not data:
+        return None
+    return data
+
+
 def load_xlsx_from_ref(
     repo_path: str, ref: str, xlsx_path: str
 ) -> Optional[object]:
-    """git ref(커밋해시, 브랜치명 등)에서 xlsx를 openpyxl Workbook으로 로드"""
-    code, data = run_git_binary(["show", f"{ref}:{xlsx_path}"], cwd=repo_path)
-    if code != 0 or not data:
+    """git ref(커밋해시, 브랜치명 등)에서 xlsx를 openpyxl Workbook으로 로드.
+    바이너리는 캐싱되므로 같은 ref 반복 호출 시 git subprocess 생략됨."""
+    data = _load_xlsx_bytes(repo_path, ref, xlsx_path)
+    if not data:
         return None
     try:
         return load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception:
         return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_compare(
+    repo_path: str, old_ref: str, new_ref: str, xlsx_path: str,
+    left_label: str = "◀ 이전 (왼쪽)",
+    right_label: str = "▶ 이후 (오른쪽)",
+) -> dict[str, str]:
+    """(repo, old_ref, new_ref, xlsx, labels) 조합의 diff HTML을 캐싱 (5분 TTL).
+    bytes 캐시 위에서 동작하므로 전체 파이프라인이 캐시됨."""
+    old_wb = load_xlsx_from_ref(repo_path, old_ref, xlsx_path)
+    new_wb = load_xlsx_from_ref(repo_path, new_ref, xlsx_path)
+    return compare_xlsx_side_by_side(old_wb, new_wb,
+                                     left_label=left_label, right_label=right_label)
 
 
 @dataclass
@@ -579,7 +619,9 @@ def _align_rows(
 
 
 def compare_xlsx_side_by_side(
-    old_wb, new_wb, max_rows: int = 200
+    old_wb, new_wb, max_rows: int = 200,
+    left_label: str = "◀ 이전 (왼쪽)",
+    right_label: str = "▶ 이후 (오른쪽)",
 ) -> dict[str, str]:
     """
     두 워크북을 Beyond Compare 스타일 HTML 테이블로 비교.
@@ -634,7 +676,8 @@ def compare_xlsx_side_by_side(
         if not cols:
             continue
 
-        html = _build_comparison_html(old_data, new_data, headers, cols, changed_pairs)
+        html = _build_comparison_html(old_data, new_data, headers, cols, changed_pairs,
+                                       left_label=left_label, right_label=right_label)
         results[sheet_name] = html
 
     return results
@@ -647,6 +690,8 @@ def _build_comparison_html(
     old_data: dict, new_data: dict, headers: dict,
     cols: list[int],
     aligned_pairs: list[tuple[int | None, int | None]],
+    left_label: str = "◀ 이전 (왼쪽)",
+    right_label: str = "▶ 이후 (오른쪽)",
 ) -> str:
     """좌우 비교 HTML — 2개 테이블 flex + JS 행 높이 동기화"""
     global _compare_counter
@@ -659,10 +704,30 @@ def _build_comparison_html(
     def _trunc(v: str, n: int = 40) -> str:
         return v[:n] + "…" if len(v) > n else v
 
-    def _get(data: dict, row: int | None, col: int) -> str:
+    def _raw(data: dict, row: int | None, col: int) -> str:
         if row is None:
             return ""
-        return _esc(_trunc(data.get((row, col), "")))
+        return _trunc(data.get((row, col), ""))
+
+    def _get(data: dict, row: int | None, col: int) -> str:
+        return _esc(_raw(data, row, col))
+
+    def _inline_diff(old: str, new: str) -> tuple[str, str]:
+        """문자 단위 인라인 diff. (old_html, new_html) 반환"""
+        sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
+        old_parts, new_parts = [], []
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op == "equal":
+                old_parts.append(_esc(old[i1:i2]))
+                new_parts.append(_esc(new[j1:j2]))
+            elif op == "replace":
+                old_parts.append(f"<span class='di-del'>{_esc(old[i1:i2])}</span>")
+                new_parts.append(f"<span class='di-ins'>{_esc(new[j1:j2])}</span>")
+            elif op == "delete":
+                old_parts.append(f"<span class='di-del'>{_esc(old[i1:i2])}</span>")
+            elif op == "insert":
+                new_parts.append(f"<span class='di-ins'>{_esc(new[j1:j2])}</span>")
+        return "".join(old_parts), "".join(new_parts)
 
     col_headers = [_esc(_trunc(headers.get(c, f"col{c}"), 20)) for c in cols]
     header_row_html = "".join(f"<th>{h}</th>" for h in ["행"] + col_headers)
@@ -673,33 +738,38 @@ def _build_comparison_html(
         row_added = old_r is None
         row_removed = new_r is None
 
-        left_label = str(old_r) if old_r else ""
-        right_label = str(new_r) if new_r else ""
+        # 빈칸 쪽(상대방)에만 행 번호 숨김
+        left_rn  = str(old_r) if old_r else ""
+        right_rn = str(new_r) if new_r else ""
 
-        left_cells = [f"<td class='rn'>{left_label}</td>"]
-        right_cells = [f"<td class='rn'>{right_label}</td>"]
+        left_cells = [f"<td class='rn'>{left_rn}</td>"]
+        right_cells = [f"<td class='rn'>{right_rn}</td>"]
 
         for c in cols:
             old_val = _get(old_data, old_r, c)
             new_val = _get(new_data, new_r, c)
 
             if row_added:
-                left_cells.append("<td class='bg-del'></td>")
+                left_cells.append("<td class='bg-del'>&nbsp;</td>")
                 right_cells.append(f"<td class='bg-add'>{new_val}</td>")
             elif row_removed:
                 left_cells.append(f"<td class='bg-del'>{old_val}</td>")
-                right_cells.append("<td class='bg-del'></td>")
+                right_cells.append("<td class='bg-del'>&nbsp;</td>")
             else:
                 if old_val == new_val:
-                    cls = ""
+                    left_cells.append(f"<td>{old_val}</td>")
+                    right_cells.append(f"<td>{new_val}</td>")
                 elif not old_val:
-                    cls = " class='bg-add'"
+                    left_cells.append("<td class='bg-add'></td>")
+                    right_cells.append(f"<td class='bg-add'>{new_val}</td>")
                 elif not new_val:
-                    cls = " class='bg-del'"
+                    left_cells.append(f"<td class='bg-del'>{old_val}</td>")
+                    right_cells.append("<td class='bg-del'></td>")
                 else:
-                    cls = " class='bg-chg'"
-                left_cells.append(f"<td{cls}>{old_val}</td>")
-                right_cells.append(f"<td{cls}>{new_val}</td>")
+                    # 문자 단위 인라인 diff
+                    old_html, new_html = _inline_diff(_raw(old_data, old_r, c), _raw(new_data, new_r, c))
+                    left_cells.append(f"<td class='bg-chg'>{old_html}</td>")
+                    right_cells.append(f"<td class='bg-chg'>{new_html}</td>")
 
         left_rows.append("<tr>" + "".join(left_cells) + "</tr>")
         right_rows.append("<tr>" + "".join(right_cells) + "</tr>")
@@ -720,18 +790,41 @@ def _build_comparison_html(
     # JS: 행 높이 동기화 + 스크롤 동기화
     js = f"""<script>
 (function(){{
-  function init(){{
-    var L=document.getElementById('{uid}_left');
-    var R=document.getElementById('{uid}_right');
+  var L,R;
+  function syncHeights(){{
     if(!L||!R) return;
-    // 행 높이 동기화
     var lRows=L.querySelectorAll('tbody tr');
     var rRows=R.querySelectorAll('tbody tr');
-    for(var i=0;i<Math.min(lRows.length,rRows.length);i++){{
+    var n=Math.min(lRows.length,rRows.length);
+    for(var i=0;i<n;i++){{
+      lRows[i].style.height='auto';
+      rRows[i].style.height='auto';
+    }}
+    for(var i=0;i<n;i++){{
       var h=Math.max(lRows[i].offsetHeight,rRows[i].offsetHeight);
       lRows[i].style.height=h+'px';
       rRows[i].style.height=h+'px';
     }}
+  }}
+  function syncTableSize(){{
+    if(!L||!R) return;
+    var lt=L.querySelector('table');
+    var rt=R.querySelector('table');
+    if(!lt||!rt) return;
+    var h=Math.max(lt.offsetHeight,rt.offsetHeight);
+    lt.style.minHeight=h+'px';
+    rt.style.minHeight=h+'px';
+    var w=Math.max(lt.offsetWidth,rt.offsetWidth);
+    lt.style.minWidth=w+'px';
+    rt.style.minWidth=w+'px';
+  }}
+  function init(){{
+    L=document.getElementById('{uid}_left');
+    R=document.getElementById('{uid}_right');
+    if(!L||!R) return;
+    syncHeights();
+    syncTableSize();
+    setTimeout(function(){{ syncHeights(); syncTableSize(); }},500);
     // 스크롤 동기화 (active 추적 방식)
     var active=null,timer=null;
     function release(){{ active=null; timer=null; }}
@@ -748,9 +841,11 @@ def _build_comparison_html(
       clearTimeout(timer); timer=setTimeout(release,120);
     }});
   }}
-  if(document.readyState==='loading'){{
-    document.addEventListener('DOMContentLoaded',init);
-  }} else {{ setTimeout(init,50); }}
+  requestAnimationFrame(function(){{
+    requestAnimationFrame(function(){{
+      init();
+    }});
+  }});
 }})();
 </script>"""
 
@@ -762,14 +857,16 @@ def _build_comparison_html(
 #{uid}_left .bg-add, #{uid}_right .bg-add {{background:#d4edda}}
 #{uid}_left .bg-del, #{uid}_right .bg-del {{background:#f8d7da}}
 #{uid}_left .bg-chg, #{uid}_right .bg-chg {{background:#fff3cd}}
+#{uid}_left .di-del {{color:#cc0000;font-weight:600}}
+#{uid}_right .di-ins {{color:#006600;font-weight:600}}
 #{uid}_left tr:hover td, #{uid}_right tr:hover td {{background:#f5f5ff!important}}
 </style>"""
 
     return (
         css
         + "<div style='display:flex;gap:8px'>"
-        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>◀ 이전 (왼쪽)</div>{left_html}</div>"
-        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>▶ 이후 (오른쪽)</div>{right_html}</div>"
+        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>{left_label}</div>{left_html}</div>"
+        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>{right_label}</div>{right_html}</div>"
         + "</div>"
         + js
     )
