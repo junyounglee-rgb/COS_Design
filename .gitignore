@@ -26,3 +26,17 @@ secrets.*
 # OS
 .DS_Store
 Thumbs.db
+*.lnk
+
+# Editor
+.vscode/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Log files
+*.log
+*.log.*
+
+# Temp folders
+**/tmp_event/
