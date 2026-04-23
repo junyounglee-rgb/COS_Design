@@ -1,0 +1,126 @@
+# TownMainPanel Offset Backup
+# Date: 2026-04-06 20:36:53
+# Source: OutGameCookieOffsetForUIData.asset
+
+    - _keyData:
+      - CH_FruitPunch
+      - CH_RedVelvet
+      - CH_DarkChoco
+      - CH_BaconRoll
+      - CH_BlackPudding
+      - CH_BlueberryPie
+      - CH_BlueSlushy
+      - CH_BrieCheese
+      - CH_Camembert
+      - CH_Cherry
+      - CH_ChiliPepper
+      - CH_Espresso
+      - CH_GingerBrave
+      - CH_IcePop
+      - CH_Jerky
+      - CH_Latte
+      - CH_Madeleine
+      - CH_MelonSoda
+      - CH_Peach
+      - CH_Peppermint
+      - CH_Rye
+      - CH_StrawberryCrepe
+      - CH_StringCheese
+      - CH_TigerLily
+      _valueData:
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.1
+        _accessoryOffset: -0.27
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.27
+        _accessoryOffset: -0.1
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.19
+        _accessoryOffset: -0.2
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.25
+        _accessoryOffset: 0
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.35
+        _accessoryOffset: 0
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.3
+        _accessoryOffset: -0.18
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.43
+        _accessoryOffset: -0.05
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.33
+        _accessoryOffset: 0
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.34
+        _accessoryOffset: -0.15
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.5
+        _accessoryOffset: -0.13
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.36
+        _accessoryOffset: -0.1
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.4
+        _accessoryOffset: -0.18
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.5
+        _accessoryOffset: -0.15
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.28
+        _accessoryOffset: -0.25
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.5
+        _accessoryOffset: 0
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.32
+        _accessoryOffset: -0.08
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.27
+        _accessoryOffset: -0.2
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.4
+        _accessoryOffset: -0.05
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.4
+        _accessoryOffset: -0.18
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.57
+        _accessoryOffset: -0.1
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.4
+        _accessoryOffset: 0
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.47
+        _accessoryOffset: -0.1
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.38
+        _accessoryOffset: -0.01
+      - _positionOffset: {x: 0, y: 0, z: 0}
+        _rotationOffset: {x: 0, y: 0, z: 0}
+        _scaleOffset: 1.3
+        _accessoryOffset: -0.18
