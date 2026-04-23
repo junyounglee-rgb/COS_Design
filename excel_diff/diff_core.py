@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from openpyxl import load_workbook
+from openpyxl import Workbook
 
 
 # ─── git 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ def run_git_binary(args: list[str], cwd: str) -> tuple[int, bytes]:
     return result.returncode, result.stdout
 
 
-def load_xlsx_from_git(repo_path: str, ref: str, xlsx_path: str) -> Optional[object]:
+def load_xlsx_from_git(repo_path: str, ref: str, xlsx_path: str) -> Optional[Workbook]:
     """
     git show {ref}:{xlsx_path} 로 xlsx 파일을 읽어 openpyxl Workbook 반환.
     실패 시 None 반환.
@@ -45,7 +46,7 @@ def load_xlsx_from_git(repo_path: str, ref: str, xlsx_path: str) -> Optional[obj
         return None
 
 
-def load_xlsx_from_path(local_path: str) -> Optional[object]:
+def load_xlsx_from_path(local_path: str) -> Optional[Workbook]:
     """
     로컬 파일 경로에서 openpyxl Workbook 반환.
     실패 시 None 반환.
@@ -145,7 +146,7 @@ def _build_comparison_html(
     left_label: str = "◀ 서버 (origin)",
     right_label: str = "▶ 내 로컬 파일",
 ) -> str:
-    """좌우 비교 HTML — 2개 테이블 flex + JS 행 높이·스크롤 동기화"""
+    """좌우 비교 HTML — 2개 테이블 flex + JS 행 높이 동기화"""
     global _compare_counter
     _compare_counter += 1
     uid = f"bc{_compare_counter}"
@@ -187,13 +188,14 @@ def _build_comparison_html(
     left_rows = []
     right_rows = []
     for old_r, new_r in aligned_pairs:
-        row_added   = old_r is None   # 로컬에만 있음 (서버엔 없음)
-        row_removed = new_r is None   # 서버에만 있음 (로컬엔 없음)
+        row_added = old_r is None
+        row_removed = new_r is None
 
+        # 빈칸 쪽(상대방)에만 행 번호 숨김
         left_rn  = str(old_r) if old_r else ""
         right_rn = str(new_r) if new_r else ""
 
-        left_cells  = [f"<td class='rn'>{left_rn}</td>"]
+        left_cells = [f"<td class='rn'>{left_rn}</td>"]
         right_cells = [f"<td class='rn'>{right_rn}</td>"]
 
         for c in cols:
@@ -217,9 +219,8 @@ def _build_comparison_html(
                     left_cells.append(f"<td class='bg-del'>{old_val}</td>")
                     right_cells.append("<td class='bg-del'></td>")
                 else:
-                    old_html, new_html = _inline_diff(
-                        _raw(old_data, old_r, c), _raw(new_data, new_r, c)
-                    )
+                    # 문자 단위 인라인 diff
+                    old_html, new_html = _inline_diff(_raw(old_data, old_r, c), _raw(new_data, new_r, c))
                     left_cells.append(f"<td class='bg-chg'>{old_html}</td>")
                     right_cells.append(f"<td class='bg-chg'>{new_html}</td>")
 
@@ -239,6 +240,7 @@ def _build_comparison_html(
         "<tbody>" + "".join(right_rows) + "</tbody></table></div>"
     )
 
+    # JS: 행 높이 동기화 + syncTableSize + 스크롤 동기화
     js = f"""<script>
 (function(){{
   var L,R;
@@ -247,46 +249,70 @@ def _build_comparison_html(
     var lRows=L.querySelectorAll('tbody tr');
     var rRows=R.querySelectorAll('tbody tr');
     var n=Math.min(lRows.length,rRows.length);
-    for(var i=0;i<n;i++){{lRows[i].style.height='auto';rRows[i].style.height='auto';}}
+    for(var i=0;i<n;i++){{
+      lRows[i].style.height='auto';
+      rRows[i].style.height='auto';
+    }}
     for(var i=0;i<n;i++){{
       var h=Math.max(lRows[i].offsetHeight,rRows[i].offsetHeight);
-      lRows[i].style.height=h+'px';rRows[i].style.height=h+'px';
+      lRows[i].style.height=h+'px';
+      rRows[i].style.height=h+'px';
     }}
+  }}
+  function syncTableSize(){{
+    if(!L||!R) return;
+    var lt=L.querySelector('table');
+    var rt=R.querySelector('table');
+    if(!lt||!rt) return;
+    var h=Math.max(lt.offsetHeight,rt.offsetHeight);
+    lt.style.minHeight=h+'px';
+    rt.style.minHeight=h+'px';
+    var w=Math.max(lt.offsetWidth,rt.offsetWidth);
+    lt.style.minWidth=w+'px';
+    rt.style.minWidth=w+'px';
   }}
   function init(){{
     L=document.getElementById('{uid}_left');
     R=document.getElementById('{uid}_right');
     if(!L||!R) return;
     syncHeights();
-    setTimeout(function(){{syncHeights();}},500);
+    syncTableSize();
+    setTimeout(function(){{ syncHeights(); syncTableSize(); }},500);
+    // 스크롤 동기화 (active 추적 방식)
     var active=null,timer=null;
-    function release(){{active=null;timer=null;}}
+    function release(){{active=null; timer=null;}}
     L.addEventListener('scroll',function(){{
       if(active&&active!==L) return;
-      active=L;R.scrollLeft=L.scrollLeft;R.scrollTop=L.scrollTop;
-      clearTimeout(timer);timer=setTimeout(release,120);
+      active=L;
+      R.scrollLeft=L.scrollLeft; R.scrollTop=L.scrollTop;
+      clearTimeout(timer); timer=setTimeout(release,120);
     }});
     R.addEventListener('scroll',function(){{
       if(active&&active!==R) return;
-      active=R;L.scrollLeft=R.scrollLeft;L.scrollTop=R.scrollTop;
-      clearTimeout(timer);timer=setTimeout(release,120);
+      active=R;
+      L.scrollLeft=R.scrollLeft; L.scrollTop=R.scrollTop;
+      clearTimeout(timer); timer=setTimeout(release,120);
     }});
   }}
-  requestAnimationFrame(function(){{requestAnimationFrame(function(){{init();}});}});
+  requestAnimationFrame(function(){{
+    requestAnimationFrame(function(){{
+      init();
+    }});
+  }});
 }})();
 </script>"""
 
     css = f"""<style>
-#{uid}_left table,#{uid}_right table{{border-collapse:collapse;width:max-content}}
-#{uid}_left th,#{uid}_right th{{background:#f0f0f0;border:1px solid #ddd;padding:4px 6px;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:1}}
-#{uid}_left td,#{uid}_right td{{border:1px solid #eee;padding:3px 6px;font-size:12px;white-space:nowrap}}
-#{uid}_left .rn,#{uid}_right .rn{{font-weight:600;background:#fafafa}}
-#{uid}_left .bg-add,#{uid}_right .bg-add{{background:#d4edda}}
-#{uid}_left .bg-del,#{uid}_right .bg-del{{background:#f8d7da}}
-#{uid}_left .bg-chg,#{uid}_right .bg-chg{{background:#fff3cd}}
-#{uid}_left .di-del{{color:#cc0000;font-weight:600}}
-#{uid}_right .di-ins{{color:#006600;font-weight:600}}
-#{uid}_left tr:hover td,#{uid}_right tr:hover td{{background:#f5f5ff!important}}
+#{uid}_left table, #{uid}_right table {{border-collapse:collapse;width:max-content}}
+#{uid}_left th, #{uid}_right th {{background:#f0f0f0;border:1px solid #ddd;padding:4px 6px;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:1}}
+#{uid}_left td, #{uid}_right td {{border:1px solid #eee;padding:3px 6px;font-size:12px;white-space:nowrap}}
+#{uid}_left .rn, #{uid}_right .rn {{font-weight:600;background:#fafafa}}
+#{uid}_left .bg-add, #{uid}_right .bg-add {{background:#d4edda}}
+#{uid}_left .bg-del, #{uid}_right .bg-del {{background:#f8d7da}}
+#{uid}_left .bg-chg, #{uid}_right .bg-chg {{background:#fff3cd}}
+#{uid}_left .di-del {{color:#cc0000;font-weight:600}}
+#{uid}_right .di-ins {{color:#006600;font-weight:600}}
+#{uid}_left tr:hover td, #{uid}_right tr:hover td {{background:#f5f5ff!important}}
 </style>"""
 
     return (

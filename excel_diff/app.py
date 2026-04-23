@@ -54,21 +54,25 @@ def is_git_repo(path: str) -> bool:
         return False
 
 
-def get_remote_branches(repo_path: str) -> list[str]:
+def get_remote_branches(repo_path: str) -> tuple[list[str], str]:
+    """원격 브랜치 목록과 오류 메시지를 함께 반환.
+    성공 시: (branches, ""), 실패 시: ([], 오류 메시지)
+    """
     r = subprocess.run(
         ["git", "branch", "-r"],
         cwd=repo_path, capture_output=True,
         text=True, encoding="utf-8", errors="replace",
     )
     if r.returncode != 0:
-        return []
+        err = r.stderr.strip() or f"git branch -r returned exit code {r.returncode}"
+        return [], err
     branches = []
     for line in r.stdout.splitlines():
         line = line.strip()
         if not line or "HEAD" in line:
             continue
         branches.append(line[len("origin/"):] if line.startswith("origin/") else line)
-    return branches
+    return branches, ""
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -213,7 +217,9 @@ with st.expander("⚙️ Settings", expanded=False):
     if st.button("💾 Save settings", key="save_cfg"):
         rb = []
         if repo_path_input and Path(repo_path_input).exists() and is_git_repo(repo_path_input):
-            rb = get_remote_branches(repo_path_input)
+            rb, rb_err = get_remote_branches(repo_path_input)
+            if rb_err:
+                st.warning(f"브랜치 목록을 가져오지 못했습니다: {rb_err}")
         merged = list(dict.fromkeys(cfg.get("branches", DEFAULT_CONFIG["branches"]) + rb))
         save_config({"repo_path": repo_path_input, "excel_folder": excel_folder_input, "branches": merged})
         st.success("Settings saved.")
@@ -226,7 +232,9 @@ excel_folder = resolve_excel_folder(repo_path, excel_folder_input)
 cfg_branches   = cfg.get("branches", DEFAULT_CONFIG["branches"])
 remote_branches: list[str] = []
 if repo_path and Path(repo_path).exists() and is_git_repo(repo_path):
-    remote_branches = get_remote_branches(repo_path)
+    remote_branches, _rb_err = get_remote_branches(repo_path)
+    if _rb_err:
+        st.warning(f"원격 브랜치 목록을 가져오지 못했습니다. `git fetch origin`을 먼저 실행해보세요.  \n오류: {_rb_err}")
 
 branch_options = list(dict.fromkeys(cfg_branches + remote_branches)) or ["main"]
 branch = st.selectbox("Compare branch", options=branch_options)

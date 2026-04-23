@@ -19,6 +19,21 @@ import streamlit as st
 import yaml
 from openpyxl import load_workbook
 
+import sys as _sys
+from pathlib import Path as _Path
+_DIFF_CORE = str(_Path(__file__).parent.parent / "excel_diff")
+if _DIFF_CORE not in _sys.path:
+    _sys.path.insert(0, _DIFF_CORE)
+from diff_core import (
+    run_git_binary,
+    _read_sheet_data,
+    _detect_header_row,
+    _get_headers,
+    _align_rows,
+    _build_comparison_html,
+    compare_xlsx_side_by_side,
+)
+
 # ─── 설정 ─────────────────────────────────────────────────────────────────────
 
 CONFIG_PATH = Path(__file__).parent / "cherry_pick.yaml"
@@ -438,16 +453,6 @@ class CherryPickThread:
 
 # ─── Excel Diff ───────────────────────────────────────────────────────────────
 
-def run_git_binary(args: list[str], cwd: str) -> tuple[int, bytes]:
-    """바이너리 출력용 git 실행 (xlsx 로딩 등)"""
-    result = subprocess.run(
-        ["git"] + args,
-        cwd=cwd,
-        capture_output=True,
-    )
-    return result.returncode, result.stdout
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_xlsx_bytes(repo_path: str, ref: str, xlsx_path: str) -> Optional[bytes]:
     """git ref에서 xlsx 바이너리를 추출하여 캐싱 (5분 TTL)"""
@@ -497,37 +502,6 @@ class CellChange:
 
 
 MAX_DIFF_CELLS = 500
-
-
-def _read_sheet_data(ws) -> dict[tuple[int, int], str]:
-    """시트의 모든 셀을 {(row, col): value_str} 딕셔너리로 반환"""
-    data: dict[tuple[int, int], str] = {}
-    for row in ws.iter_rows():
-        for cell in row:
-            val = cell.value
-            if val is not None:
-                data[(cell.row, cell.column)] = str(val)
-    return data
-
-
-def _detect_header_row(sheet_name: str) -> int:
-    """
-    시트명에 '#'이 포함되면 1행이 헤더 (현재 동작 유지).
-    그 외(일반 게임 데이터 시트)는 3행이 헤더 — 1·2행은 주석/경로 메타 행.
-    """
-    return 1 if "#" in sheet_name else 3
-
-
-def _get_headers(ws, header_row: int = 1) -> dict[int, str]:
-    """지정된 행에서 컬럼 헤더 추출"""
-    headers: dict[int, str] = {}
-    try:
-        for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row)):
-            if cell.value is not None:
-                headers[cell.column] = str(cell.value)
-    except StopIteration:
-        pass
-    return headers
 
 
 def diff_workbooks(
@@ -588,304 +562,3 @@ def diff_workbooks(
     return changes
 
 
-def _align_rows(
-    old_data: dict[tuple[int, int], str],
-    new_data: dict[tuple[int, int], str],
-    header_row: int = 1,
-) -> list[tuple[int | None, int | None]]:
-    """
-    LCS 기반 행 정렬. 첫 2컬럼 값 튜플을 키로 사용.
-    반환: (old_row|None, new_row|None) 쌍 목록.
-    None = 해당 쪽에 없는 행 (삽입 또는 삭제).
-    """
-    # header_row 이하(메타 행 포함) 전부 제외
-    old_rows = sorted(set(r for r, c in old_data if r > header_row))
-    new_rows = sorted(set(r for r, c in new_data if r > header_row))
-
-    def row_key(data: dict, row: int) -> tuple:
-        cols = sorted(c for r, c in data if r == row)
-        key_cols = cols[:2]  # 최대 2컬럼
-        return tuple(data.get((row, c), "") for c in key_cols)
-
-    old_keys = [row_key(old_data, r) for r in old_rows]
-    new_keys = [row_key(new_data, r) for r in new_rows]
-
-    sm = difflib.SequenceMatcher(None, old_keys, new_keys, autojunk=False)
-    aligned: list[tuple[int | None, int | None]] = []
-
-    for op, i1, i2, j1, j2 in sm.get_opcodes():
-        if op == "equal":
-            for i, j in zip(range(i1, i2), range(j1, j2)):
-                aligned.append((old_rows[i], new_rows[j]))
-        elif op == "replace":
-            for k in range(max(i2 - i1, j2 - j1)):
-                old_r = old_rows[i1 + k] if i1 + k < i2 else None
-                new_r = new_rows[j1 + k] if j1 + k < j2 else None
-                aligned.append((old_r, new_r))
-        elif op == "delete":
-            for i in range(i1, i2):
-                aligned.append((old_rows[i], None))
-        elif op == "insert":
-            for j in range(j1, j2):
-                aligned.append((None, new_rows[j]))
-
-    return aligned
-
-
-def compare_xlsx_side_by_side(
-    old_wb, new_wb, max_rows: int = 200,
-    left_label: str = "◀ 이전 (왼쪽)",
-    right_label: str = "▶ 이후 (오른쪽)",
-) -> dict[str, str]:
-    """
-    두 워크북을 Beyond Compare 스타일 HTML 테이블로 비교.
-    LCS 정렬로 삽입/삭제 행을 올바르게 처리. 변경 행만 표시.
-    반환: {sheet_name: html_string}
-    """
-    results: dict[str, str] = {}
-
-    if old_wb is None and new_wb is None:
-        return results
-
-    old_sheets = set(old_wb.sheetnames) if old_wb else set()
-    new_sheets = set(new_wb.sheetnames) if new_wb else set()
-    all_sheets = sorted(old_sheets | new_sheets)
-
-    for sheet_name in all_sheets:
-        old_ws = old_wb[sheet_name] if old_wb and sheet_name in old_sheets else None
-        new_ws = new_wb[sheet_name] if new_wb and sheet_name in new_sheets else None
-
-        old_data = _read_sheet_data(old_ws) if old_ws else {}
-        new_data = _read_sheet_data(new_ws) if new_ws else {}
-
-        header_row = _detect_header_row(sheet_name)
-        headers = (
-            _get_headers(new_ws, header_row) if new_ws
-            else (_get_headers(old_ws, header_row) if old_ws else {})
-        )
-
-        # LCS 기반 행 정렬
-        aligned = _align_rows(old_data, new_data, header_row=header_row)
-
-        # 변경된 쌍만 필터 (equal 제외)
-        changed_pairs: list[tuple[int | None, int | None]] = []
-        for old_r, new_r in aligned:
-            if old_r is None or new_r is None:
-                changed_pairs.append((old_r, new_r))
-                continue
-            old_cols = {c: v for (r, c), v in old_data.items() if r == old_r}
-            new_cols = {c: v for (r, c), v in new_data.items() if r == new_r}
-            all_c = set(old_cols) | set(new_cols)
-            if any(old_cols.get(c, "") != new_cols.get(c, "") for c in all_c):
-                changed_pairs.append((old_r, new_r))
-
-        if not changed_pairs:
-            continue
-
-        changed_pairs = changed_pairs[:max_rows]
-
-        # 관련 컬럼 수집
-        relevant_cols: set[int] = set(headers.keys())
-        for old_r, new_r in changed_pairs:
-            if old_r:
-                relevant_cols.update(c for r, c in old_data if r == old_r)
-            if new_r:
-                relevant_cols.update(c for r, c in new_data if r == new_r)
-        cols = sorted(relevant_cols)
-        if not cols:
-            continue
-
-        html = _build_comparison_html(old_data, new_data, headers, cols, changed_pairs,
-                                       left_label=left_label, right_label=right_label)
-        results[sheet_name] = html
-
-    return results
-
-
-_compare_counter = 0
-
-
-def _build_comparison_html(
-    old_data: dict, new_data: dict, headers: dict,
-    cols: list[int],
-    aligned_pairs: list[tuple[int | None, int | None]],
-    left_label: str = "◀ 이전 (왼쪽)",
-    right_label: str = "▶ 이후 (오른쪽)",
-) -> str:
-    """좌우 비교 HTML — 2개 테이블 flex + JS 행 높이 동기화"""
-    global _compare_counter
-    _compare_counter += 1
-    uid = f"bc{_compare_counter}"
-
-    def _esc(v: str) -> str:
-        return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    def _trunc(v: str, n: int = 40) -> str:
-        return v[:n] + "…" if len(v) > n else v
-
-    def _raw(data: dict, row: int | None, col: int) -> str:
-        if row is None:
-            return ""
-        return _trunc(data.get((row, col), ""))
-
-    def _get(data: dict, row: int | None, col: int) -> str:
-        return _esc(_raw(data, row, col))
-
-    def _inline_diff(old: str, new: str) -> tuple[str, str]:
-        """문자 단위 인라인 diff. (old_html, new_html) 반환"""
-        sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
-        old_parts, new_parts = [], []
-        for op, i1, i2, j1, j2 in sm.get_opcodes():
-            if op == "equal":
-                old_parts.append(_esc(old[i1:i2]))
-                new_parts.append(_esc(new[j1:j2]))
-            elif op == "replace":
-                old_parts.append(f"<span class='di-del'>{_esc(old[i1:i2])}</span>")
-                new_parts.append(f"<span class='di-ins'>{_esc(new[j1:j2])}</span>")
-            elif op == "delete":
-                old_parts.append(f"<span class='di-del'>{_esc(old[i1:i2])}</span>")
-            elif op == "insert":
-                new_parts.append(f"<span class='di-ins'>{_esc(new[j1:j2])}</span>")
-        return "".join(old_parts), "".join(new_parts)
-
-    col_headers = [_esc(_trunc(headers.get(c, f"col{c}"), 20)) for c in cols]
-    header_row_html = "".join(f"<th>{h}</th>" for h in ["행"] + col_headers)
-
-    left_rows = []
-    right_rows = []
-    for old_r, new_r in aligned_pairs:
-        row_added = old_r is None
-        row_removed = new_r is None
-
-        # 빈칸 쪽(상대방)에만 행 번호 숨김
-        left_rn  = str(old_r) if old_r else ""
-        right_rn = str(new_r) if new_r else ""
-
-        left_cells = [f"<td class='rn'>{left_rn}</td>"]
-        right_cells = [f"<td class='rn'>{right_rn}</td>"]
-
-        for c in cols:
-            old_val = _get(old_data, old_r, c)
-            new_val = _get(new_data, new_r, c)
-
-            if row_added:
-                left_cells.append("<td class='bg-del'>&nbsp;</td>")
-                right_cells.append(f"<td class='bg-add'>{new_val}</td>")
-            elif row_removed:
-                left_cells.append(f"<td class='bg-del'>{old_val}</td>")
-                right_cells.append("<td class='bg-del'>&nbsp;</td>")
-            else:
-                if old_val == new_val:
-                    left_cells.append(f"<td>{old_val}</td>")
-                    right_cells.append(f"<td>{new_val}</td>")
-                elif not old_val:
-                    left_cells.append("<td class='bg-add'></td>")
-                    right_cells.append(f"<td class='bg-add'>{new_val}</td>")
-                elif not new_val:
-                    left_cells.append(f"<td class='bg-del'>{old_val}</td>")
-                    right_cells.append("<td class='bg-del'></td>")
-                else:
-                    # 문자 단위 인라인 diff
-                    old_html, new_html = _inline_diff(_raw(old_data, old_r, c), _raw(new_data, new_r, c))
-                    left_cells.append(f"<td class='bg-chg'>{old_html}</td>")
-                    right_cells.append(f"<td class='bg-chg'>{new_html}</td>")
-
-        left_rows.append("<tr>" + "".join(left_cells) + "</tr>")
-        right_rows.append("<tr>" + "".join(right_cells) + "</tr>")
-
-    left_html = (
-        f"<div id='{uid}_left' class='{uid}_scroll' style='overflow:auto;max-height:500px'>"
-        "<table style='border-collapse:collapse;width:max-content'>"
-        f"<thead><tr>{header_row_html}</tr></thead>"
-        "<tbody>" + "".join(left_rows) + "</tbody></table></div>"
-    )
-    right_html = (
-        f"<div id='{uid}_right' class='{uid}_scroll' style='overflow:auto;max-height:500px'>"
-        "<table style='border-collapse:collapse;width:max-content'>"
-        f"<thead><tr>{header_row_html}</tr></thead>"
-        "<tbody>" + "".join(right_rows) + "</tbody></table></div>"
-    )
-
-    # JS: 행 높이 동기화 + 스크롤 동기화
-    js = f"""<script>
-(function(){{
-  var L,R;
-  function syncHeights(){{
-    if(!L||!R) return;
-    var lRows=L.querySelectorAll('tbody tr');
-    var rRows=R.querySelectorAll('tbody tr');
-    var n=Math.min(lRows.length,rRows.length);
-    for(var i=0;i<n;i++){{
-      lRows[i].style.height='auto';
-      rRows[i].style.height='auto';
-    }}
-    for(var i=0;i<n;i++){{
-      var h=Math.max(lRows[i].offsetHeight,rRows[i].offsetHeight);
-      lRows[i].style.height=h+'px';
-      rRows[i].style.height=h+'px';
-    }}
-  }}
-  function syncTableSize(){{
-    if(!L||!R) return;
-    var lt=L.querySelector('table');
-    var rt=R.querySelector('table');
-    if(!lt||!rt) return;
-    var h=Math.max(lt.offsetHeight,rt.offsetHeight);
-    lt.style.minHeight=h+'px';
-    rt.style.minHeight=h+'px';
-    var w=Math.max(lt.offsetWidth,rt.offsetWidth);
-    lt.style.minWidth=w+'px';
-    rt.style.minWidth=w+'px';
-  }}
-  function init(){{
-    L=document.getElementById('{uid}_left');
-    R=document.getElementById('{uid}_right');
-    if(!L||!R) return;
-    syncHeights();
-    syncTableSize();
-    setTimeout(function(){{ syncHeights(); syncTableSize(); }},500);
-    // 스크롤 동기화 (active 추적 방식)
-    var active=null,timer=null;
-    function release(){{ active=null; timer=null; }}
-    L.addEventListener('scroll',function(){{
-      if(active&&active!==L) return;
-      active=L;
-      R.scrollLeft=L.scrollLeft; R.scrollTop=L.scrollTop;
-      clearTimeout(timer); timer=setTimeout(release,120);
-    }});
-    R.addEventListener('scroll',function(){{
-      if(active&&active!==R) return;
-      active=R;
-      L.scrollLeft=R.scrollLeft; L.scrollTop=R.scrollTop;
-      clearTimeout(timer); timer=setTimeout(release,120);
-    }});
-  }}
-  requestAnimationFrame(function(){{
-    requestAnimationFrame(function(){{
-      init();
-    }});
-  }});
-}})();
-</script>"""
-
-    css = f"""<style>
-#{uid}_left table, #{uid}_right table {{border-collapse:collapse;width:max-content}}
-#{uid}_left th, #{uid}_right th {{background:#f0f0f0;border:1px solid #ddd;padding:4px 6px;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:1}}
-#{uid}_left td, #{uid}_right td {{border:1px solid #eee;padding:3px 6px;font-size:12px;white-space:nowrap}}
-#{uid}_left .rn, #{uid}_right .rn {{font-weight:600;background:#fafafa}}
-#{uid}_left .bg-add, #{uid}_right .bg-add {{background:#d4edda}}
-#{uid}_left .bg-del, #{uid}_right .bg-del {{background:#f8d7da}}
-#{uid}_left .bg-chg, #{uid}_right .bg-chg {{background:#fff3cd}}
-#{uid}_left .di-del {{color:#cc0000;font-weight:600}}
-#{uid}_right .di-ins {{color:#006600;font-weight:600}}
-#{uid}_left tr:hover td, #{uid}_right tr:hover td {{background:#f5f5ff!important}}
-</style>"""
-
-    return (
-        css
-        + "<div style='display:flex;gap:8px'>"
-        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>{left_label}</div>{left_html}</div>"
-        + f"<div style='flex:1;min-width:0'><div style='font-weight:700;margin-bottom:4px;font-size:13px'>{right_label}</div>{right_html}</div>"
-        + "</div>"
-        + js
-    )
