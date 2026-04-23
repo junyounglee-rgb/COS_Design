@@ -1,0 +1,7 @@
+repo_path: D:\COS_Project\cos-data
+excel_folder: ''
+branches:
+- main
+- release_istanbul
+- release_helsinki3
+- release_helsinki_vng
