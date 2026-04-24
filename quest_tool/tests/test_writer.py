@@ -11,16 +11,21 @@ FIXTURES = Path(__file__).parent / "fixtures"
 QUESTS_TEST = str(FIXTURES / "quests_test.xlsx")
 ITEMS_TEST = str(FIXTURES / "items_test.xlsx")
 KEYWORDS_TEST = str(FIXTURES / "keywords_test.xlsx")
+DIALOG_GROUPS_TEST = str(FIXTURES / "dialog_groups_test.xlsx")
 
 from quest_writer import (
+    allocate_child_keys,
+    append_daily_set,
     append_quest_row,
     generate_unique_key,
     get_existing_keys,
     get_header_map,
+    load_dialog_groups,
     load_items,
     load_keywords,
     load_quest_templates,
     parse_quest_texts,
+    suggest_next_parent_key,
 )
 
 # append 테스트에 사용할 최소 유효 필드값
@@ -95,33 +100,127 @@ class TestExistingKeys:
 
 
 class TestGenerateUniqueKey:
-    def test_range(self):
-        """생성 키가 100000~999999 범위인지 확인."""
+    """카테고리+reset_type 별 범위에서 기존 max+1부터 순차 발급."""
+
+    def test_default_range_when_no_category(self):
+        """category 없이 호출 시 DEFAULT_KEY_RANGE(100000~999999) 사용."""
         existing: set[int] = set()
-        for _ in range(100):
-            key = generate_unique_key(existing)
-            assert 100000 <= key <= 999999, f"범위 초과: {key}"
-
-    def test_uniqueness(self):
-        """existing에 없는 값 반환 확인."""
-        existing = {i for i in range(100000, 999999)}  # 범위 거의 채움
-        existing.discard(500000)
         key = generate_unique_key(existing)
-        assert key not in existing
+        # DEFAULT_KEY_RANGE lo=100000 → 빈 범위에서 lo부터 시작
+        assert key == 100000
 
-    def test_avoids_existing(self):
-        """existing에 포함된 값 반환 안 함."""
-        existing = set(range(100000, 1000000))  # 100000~999999 전체 (500000 제외하여 1개만 남김)
-        existing.discard(500000)
-        key = generate_unique_key(existing)
+    def test_general_none_range(self):
+        """GENERAL + QUEST_RESET_TYPE_NONE → 30011~99999."""
+        existing: set[int] = set()
+        key = generate_unique_key(
+            existing,
+            category="QUEST_CATEGORY_GENERAL",
+            reset_type="QUEST_RESET_TYPE_NONE",
+        )
+        assert 30011 <= key <= 99999
+        assert key == 30011  # 빈 범위 → lo부터
+
+    def test_general_reset_type_empty_fallback(self):
+        """reset_type 빈 문자열/None → GENERAL fallback 사용."""
+        existing: set[int] = set()
+        key_empty = generate_unique_key(existing, category="QUEST_CATEGORY_GENERAL", reset_type="")
+        key_none = generate_unique_key(existing, category="QUEST_CATEGORY_GENERAL", reset_type=None)
+        assert key_empty == key_none == 30011
+
+    def test_general_daily_range(self):
+        """GENERAL + DAILY → 30001~59999."""
+        existing: set[int] = set()
+        key = generate_unique_key(
+            existing,
+            category="QUEST_CATEGORY_GENERAL",
+            reset_type="QUEST_RESET_TYPE_DAILY",
+        )
+        assert 30001 <= key <= 59999
+        assert key == 30001
+
+    def test_general_repeat_range(self):
+        """GENERAL + REPEAT → 50008~59999."""
+        existing: set[int] = set()
+        key = generate_unique_key(
+            existing,
+            category="QUEST_CATEGORY_GENERAL",
+            reset_type="QUEST_RESET_TYPE_REPEAT",
+        )
+        assert 50008 <= key <= 59999
+        assert key == 50008
+
+    def test_town_range(self):
+        """TOWN → 500000~599999."""
+        existing: set[int] = set()
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+        assert 500000 <= key <= 599999
         assert key == 500000
 
-    def test_custom_range(self):
-        """lo, hi 파라미터 적용 확인."""
+    def test_continues_from_max_plus_one(self):
+        """범위 내 기존 최대값 + 1부터 발급."""
+        existing = {30011, 30020, 30050}
+        key = generate_unique_key(
+            existing,
+            category="QUEST_CATEGORY_GENERAL",
+            reset_type="QUEST_RESET_TYPE_NONE",
+        )
+        assert key == 30051  # max(30050) + 1
+
+    def test_town_continues_from_max(self):
+        """TOWN 범위에 기존 500002가 있으면 500003 발급."""
+        existing = {500000, 500001, 500002}
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+        assert key == 500003
+
+    def test_ignores_out_of_range_existing(self):
+        """범위 밖 existing은 무시됨 (다른 카테고리 키와 섞여도 OK)."""
+        # TOWN 범위 500000~599999, existing에는 GENERAL 범위 키도 있음
+        existing = {31, 32, 30011, 500001}
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+        # TOWN 범위 내 max(500001) + 1
+        assert key == 500002
+
+    def test_max_plus_one_includes_gaps(self):
+        """범위 내 max 기준 +1 → 중간 빈 자리는 건너뜀 (보수적 추가)."""
+        # in_range max = 500003 → start = 500004
+        existing = {500001, 500003}
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+        assert key == 500004  # max+1 (중간 500002는 비어있어도 무시)
+
+    def test_fills_gap_when_range_exhausted(self):
+        """범위 끝까지 차면 앞쪽 빈 자리 탐색."""
+        # 500000~599998 가득 차고 500000만 비었다면 → max+1=599999 반환
+        # 599999까지 꽉 차면 → 앞쪽 탐색해서 500000 반환
+        existing = set(range(500001, 600000))  # 500001~599999 (599999 포함)
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+        assert key == 500000  # 앞쪽 빈 자리 반환
+
+    def test_custom_lo_hi_override(self):
+        """lo, hi 둘 다 지정 시 KEY_RANGES 무시 (하위 호환)."""
         existing: set[int] = set()
-        for _ in range(50):
-            key = generate_unique_key(existing, lo=200000, hi=299999)
-            assert 200000 <= key <= 299999
+        key = generate_unique_key(existing, lo=200000, hi=299999)
+        assert 200000 <= key <= 299999
+        assert key == 200000
+
+    def test_range_full_raises(self):
+        """범위가 완전히 차면 ValueError."""
+        # TOWN 범위 500000~599999 전체 채움
+        existing = set(range(500000, 600000))
+        with pytest.raises(ValueError, match="꽉 찼"):
+            generate_unique_key(existing, category="QUEST_CATEGORY_TOWN")
+
+    def test_unknown_category_uses_default(self):
+        """정의되지 않은 카테고리 → DEFAULT_KEY_RANGE 사용."""
+        existing: set[int] = set()
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_UNKNOWN")
+        assert 100000 <= key <= 999999
+        assert key == 100000
+
+    def test_vault_mission_range(self):
+        """VAULT_MISSION → 80000~89999 (예약)."""
+        existing: set[int] = set()
+        key = generate_unique_key(existing, category="QUEST_CATEGORY_VAULT_MISSION")
+        assert 80000 <= key <= 89999
 
 
 class TestLoadItems:
@@ -412,3 +511,526 @@ class TestBatchAppend:
         after_max = wb["quests"].max_row
         wb.close()
         assert after_max == before_max + 3
+
+
+# ---------------------------------------------------------------------------
+# TPL_C (데일리 parent+child 세트) 관련 테스트
+# ---------------------------------------------------------------------------
+
+
+class TestLoadDialogGroups:
+    """dialog_groups 로더 — finish_town_dialog 미리보기용."""
+
+    def test_returns_list(self):
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        assert isinstance(dgs, list)
+
+    def test_has_groups(self):
+        """픽스처에 8 group 생성됨."""
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        assert len(dgs) >= 1
+
+    def test_structure(self):
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        for g in dgs:
+            assert "id" in g
+            assert "actor_name" in g
+            assert "dialog_text" in g
+            assert isinstance(g["id"], int)
+
+    def test_id_sorted(self):
+        """id 오름차순 정렬."""
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        ids = [g["id"] for g in dgs]
+        assert ids == sorted(ids)
+
+    def test_actor_name_non_empty_for_known_groups(self):
+        """픽스처 첫 번째 group 의 actor_name 이 비어있지 않음."""
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        # 첫 번째 group 은 화자 이름이 있어야 함
+        if dgs:
+            assert dgs[0]["actor_name"] != "", "첫 group actor_name 비어있음"
+
+    def test_one_entry_per_group(self):
+        """group_id 당 1건만 (첫 dialog)."""
+        dgs = load_dialog_groups(DIALOG_GROUPS_TEST)
+        ids = [g["id"] for g in dgs]
+        assert len(ids) == len(set(ids)), "group_id 중복 (1건만이어야 함)"
+
+
+class TestSuggestNextParentKey:
+    def test_empty_existing(self):
+        """기존 키 없음 → GENERAL+DAILY 범위 하한(30001) 반환."""
+        key = suggest_next_parent_key(
+            set(),
+            filter_id="$$LAUNCH_0",
+            reset_type="QUEST_RESET_TYPE_DAILY",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 30001
+
+    def test_daily_step_is_10(self):
+        """DAILY reset 의 step 은 10."""
+        existing = {30001}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$LAUNCH_0",
+            reset_type="QUEST_RESET_TYPE_DAILY",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 30011  # 30001 + 10
+
+    def test_launch_0_non_daily_step_50(self):
+        """LAUNCH_0 + NONE → step 50."""
+        existing = {30100}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$LAUNCH_0",
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 30150  # 30100 + 50
+
+    def test_helsinki_step_100(self):
+        existing = {40000}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$HELSINKI_3",
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 40100  # 40000 + 100
+
+    def test_unknown_filter_default_step(self):
+        """관례 없는 filter → DEFAULT_PARENT_STEP (10)."""
+        existing = {30200}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$UNKNOWN_FILTER",
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 30210  # 30200 + 10
+
+    def test_ignores_out_of_range(self):
+        """다른 카테고리 키는 무시."""
+        # TOWN 범위 500000~599999, GENERAL 키들도 섞여있음
+        existing = {30001, 30100, 500001}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id=None,
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_TOWN",
+        )
+        # TOWN 범위 기준 max+step
+        assert key == 500011  # 500001 + 10
+
+
+class TestAllocateChildKeys:
+    def test_simple_sequential(self):
+        keys = allocate_child_keys(set(), parent_key=30010, n=4)
+        assert keys == [30011, 30012, 30013, 30014]
+
+    def test_skips_collisions(self):
+        """parent+1 충돌 시 다음으로 밀림."""
+        existing = {30011, 30013}
+        keys = allocate_child_keys(existing, parent_key=30010, n=3)
+        assert keys == [30012, 30014, 30015]
+
+    def test_n_zero_empty(self):
+        assert allocate_child_keys(set(), 30000, 0) == []
+
+    def test_no_duplicates(self):
+        """반환 키끼리 중복 없음."""
+        existing = set(range(30011, 30020))
+        keys = allocate_child_keys(existing, parent_key=30010, n=5)
+        assert len(set(keys)) == len(keys)
+        # 기존 키와도 충돌 없어야 함
+        for k in keys:
+            assert k not in existing
+
+
+class TestAppendDailySet:
+    """append_daily_set — parent+child 일괄 저장."""
+
+    def _base_row(self, key: int, desc: str, goal_key: str = "daily_login") -> dict:
+        return {
+            "^key": key,
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": desc,
+            "reset_type": "QUEST_RESET_TYPE_DAILY",
+            "count_type": "QUEST_COUNT_TYPE_SUM",
+            "goal_count": 1,
+            "goal_type/type/%key": goal_key,
+        }
+
+    def test_parent_and_children_written(self, quest_xlsx_copy):
+        from openpyxl import load_workbook
+
+        parent = self._base_row(777001, "parent 데일리", goal_key="reward_quest:ref_quest_ids")
+        parent["count_type"] = "QUEST_COUNT_TYPE_HIGHEST"
+        parent["goal_count"] = 3  # R-08: validator 는 goal_count == len(children) 강제
+        children = [
+            self._base_row(777002, "child 1"),
+            self._base_row(777003, "child 2"),
+            self._base_row(777004, "child 3"),
+        ]
+
+        rows_written = append_daily_set(quest_xlsx_copy, parent, children)
+
+        assert len(rows_written) == 4  # parent + 3 children
+
+        # 재오픈 후 parent goal_type/type/%param1 확인 (자동 생성)
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        ws = wb["quests"]
+        hm = get_header_map(quest_xlsx_copy)
+        param1_col = hm["goal_type/type/%param1"]
+        key_col = hm["^key"]
+        parent_row_data = {k: ws[rows_written[0]][v - 1].value for k, v in hm.items()}
+        wb.close()
+
+        assert parent_row_data["^key"] == 777001
+        assert parent_row_data["goal_type/type/%param1"] == "[]{777002,777003,777004}"
+        assert parent_row_data["goal_count"] == 3  # len(children)
+
+    def test_goal_count_auto_when_missing(self, quest_xlsx_copy):
+        """parent.goal_count 없으면 len(children) 으로 자동 채움."""
+        from openpyxl import load_workbook
+
+        parent = {
+            "^key": 777010,
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": "parent no goal_count",
+            "reset_type": "QUEST_RESET_TYPE_DAILY",
+            "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+            "goal_type/type/%key": "reward_quest:ref_quest_ids",
+            # goal_count 생략
+        }
+        children = [
+            self._base_row(777011, "c1"),
+            self._base_row(777012, "c2"),
+        ]
+
+        rows = append_daily_set(quest_xlsx_copy, parent, children)
+
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        ws = wb["quests"]
+        hm = get_header_map(quest_xlsx_copy)
+        parent_row = ws[rows[0]]
+        gc_col = hm["goal_count"]
+        assert parent_row[gc_col - 1].value == 2  # len(children)
+        wb.close()
+
+    def test_child_key_collision_raises(self, quest_xlsx_copy):
+        """child ^key 가 기존 파일 키와 충돌 → ValueError."""
+        existing = get_existing_keys(quest_xlsx_copy)
+        dup_key = next(iter(existing))
+        parent = self._base_row(888001, "p")
+        parent["goal_type/type/%key"] = "reward_quest:ref_quest_ids"
+        parent["count_type"] = "QUEST_COUNT_TYPE_HIGHEST"
+        parent["goal_count"] = 1
+        children = [
+            self._base_row(dup_key, "child dup"),
+        ]
+        with pytest.raises(ValueError, match="이미 존재"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+    def test_parent_child_internal_collision_raises(self, quest_xlsx_copy):
+        """parent ^key == child ^key → ValueError."""
+        parent = self._base_row(888100, "p")
+        children = [
+            self._base_row(888100, "c"),  # 같은 키
+        ]
+        with pytest.raises(ValueError, match="중복"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+    def test_empty_children_raises(self, quest_xlsx_copy):
+        parent = self._base_row(888200, "p")
+        with pytest.raises(ValueError, match="children"):
+            append_daily_set(quest_xlsx_copy, parent, [])
+
+    def test_no_partial_write_on_precheck_failure(self, quest_xlsx_copy):
+        """검증 실패 시 파일이 변경되지 않음 (자연 롤백)."""
+        from openpyxl import load_workbook
+
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        max_before = wb["quests"].max_row
+        wb.close()
+
+        # child 간 중복 키로 검증 실패 유도
+        parent = self._base_row(888300, "p")
+        children = [
+            self._base_row(888301, "c1"),
+            self._base_row(888301, "c1 dup"),  # 중복
+        ]
+        with pytest.raises(ValueError):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+        wb = load_workbook(quest_xlsx_copy, read_only=True, data_only=True)
+        max_after = wb["quests"].max_row
+        wb.close()
+        assert max_after == max_before, "검증 실패 후에도 파일이 변경됨 (롤백 실패)"
+
+    def test_rows_written_sequential(self, quest_xlsx_copy):
+        """반환된 row 번호가 연속(parent, child1, child2, ...)."""
+        parent = self._base_row(999500, "p")
+        parent["goal_type/type/%key"] = "reward_quest:ref_quest_ids"
+        parent["count_type"] = "QUEST_COUNT_TYPE_HIGHEST"
+        parent["goal_count"] = 3
+        children = [self._base_row(999501 + i, f"c{i}") for i in range(3)]
+
+        rows = append_daily_set(quest_xlsx_copy, parent, children)
+        assert rows == [rows[0], rows[0] + 1, rows[0] + 2, rows[0] + 3]
+
+
+# ---------------------------------------------------------------------------
+# R2 신규 테스트 — 하네스 Evaluator 가 찾은 버그 차단
+# ---------------------------------------------------------------------------
+
+
+class TestReproPriorFailures:
+    """Round 2 Evaluator 가 찾은 7가지 시나리오 재현 → 차단 확인 (Gate G3-2)."""
+
+    def _parent(self, key: int = 777001) -> dict:
+        return {
+            "^key": key,
+            "$filter": "",
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": "parent",
+            "reset_type": "QUEST_RESET_TYPE_DAILY",
+            "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+            "goal_count": 2,
+            "goal_type/type/%key": "reward_quest:ref_quest_ids",
+        }
+
+    def _child(self, key: int) -> dict:
+        return {
+            "^key": key,
+            "$filter": "",
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": f"child {key}",
+            "reset_type": "QUEST_RESET_TYPE_DAILY",
+            "count_type": "QUEST_COUNT_TYPE_SUM",
+            "goal_count": 1,
+            "goal_type/type/%key": "daily_login",
+        }
+
+    def test_s4_daily_login_highest_blocked(self, quest_xlsx_copy):
+        """S4: child 중 daily_login + HIGHEST 는 validator 에서 차단."""
+        parent = self._parent()
+        children = [
+            self._child(777002),
+            self._child(777003),
+        ]
+        # 첫 번째 child 를 SUM→HIGHEST 로 위반 세팅
+        children[0]["count_type"] = "QUEST_COUNT_TYPE_HIGHEST"
+        with pytest.raises(ValueError, match="daily_login"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+    def test_s7_weekly_reset_blocked(self, quest_xlsx_copy):
+        """S7: reset_type=WEEKLY 는 validator 에서 차단."""
+        row = {
+            "^key": 999888,
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": "weekly 위반",
+            "reset_type": "QUEST_RESET_TYPE_WEEKLY",
+            "count_type": "QUEST_COUNT_TYPE_SUM",
+            "goal_count": 1,
+            "goal_type/type/%key": "daily_login",
+        }
+        with pytest.raises(ValueError, match="WEEKLY"):
+            append_quest_row(quest_xlsx_copy, row)
+
+    def test_s8_parent_sum_blocked(self, quest_xlsx_copy):
+        """S8: parent.count_type == SUM 은 TPL_C 불변식 위반."""
+        parent = self._parent()
+        parent["count_type"] = "QUEST_COUNT_TYPE_SUM"  # HIGHEST 여야 함
+        children = [self._child(777002), self._child(777003)]
+        with pytest.raises(ValueError, match="HIGHEST"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+    def test_s9_parent_goal_type_mismatch_blocked(self, quest_xlsx_copy):
+        """S9: parent.goal_type != reward_quest:ref_quest_ids 는 불변식 위반."""
+        parent = self._parent()
+        parent["goal_type/type/%key"] = "daily_login"
+        children = [self._child(777002), self._child(777003)]
+        with pytest.raises(ValueError, match="reward_quest:ref_quest_ids"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+    def test_s11_goal_count_mismatch_blocked(self, quest_xlsx_copy):
+        """S11: parent.goal_count != len(children) 는 위반."""
+        parent = self._parent()
+        parent["goal_count"] = 5  # children 은 2개
+        children = [self._child(777002), self._child(777003)]
+        with pytest.raises(ValueError, match="goal_count"):
+            append_daily_set(quest_xlsx_copy, parent, children)
+
+
+class TestAllocateChildKeysGuards:
+    """R-06 parent_key 가드 + signature 확장 검증."""
+
+    def test_negative_parent_raises(self):
+        with pytest.raises(ValueError, match="parent_key"):
+            allocate_child_keys(set(), -5, 3, "QUEST_CATEGORY_GENERAL", "QUEST_RESET_TYPE_NONE")
+
+    def test_zero_parent_raises(self):
+        with pytest.raises(ValueError, match="parent_key"):
+            allocate_child_keys(set(), 0, 3)
+
+    def test_too_large_parent_raises(self):
+        with pytest.raises(ValueError, match="parent_key"):
+            allocate_child_keys(set(), 10**7, 3)
+
+    def test_n_negative_raises(self):
+        with pytest.raises(ValueError, match="n"):
+            allocate_child_keys(set(), 100, -1)
+
+    def test_sequential_with_daily_category(self):
+        """DAILY category + parent_key=30020 → 30021..30025."""
+        keys = allocate_child_keys(
+            existing={30010, 30011, 30012, 30013, 30014, 30015, 30016, 30017, 30018, 30019},
+            parent_key=30020,
+            n=5,
+            category="QUEST_CATEGORY_GENERAL",
+            reset_type="QUEST_RESET_TYPE_DAILY",
+        )
+        assert keys == [30021, 30022, 30023, 30024, 30025]
+        # 모두 DAILY range(30001~59999) 내
+        for k in keys:
+            assert 30001 <= k <= 59999
+
+    def test_bool_parent_rejected(self):
+        """bool True 는 parent_key 로 거부 (정수 1 취급 방지)."""
+        with pytest.raises(ValueError, match="parent_key"):
+            allocate_child_keys(set(), True, 3)
+
+
+class TestSuggestFilterScoped:
+    """R-02 filter-scoped 제안 검증."""
+
+    def test_no_filter_info_falls_back_to_range_max(self):
+        """existing_by_filter None → 기존 동작 (range max + step).
+        LAUNCH_0 + NONE → step=50 → 30100 + 50 = 30150."""
+        existing = {30011, 30100}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$LAUNCH_0",
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+        )
+        assert key == 30150
+
+    def test_filter_scoped_avoids_wrong_zone(self):
+        """filter-scoped: LAUNCH_0 로 사용된 key 만 후보로 → 73755 구역 피함."""
+        # existing 에 HELSINKI 구역 키(73700)와 LAUNCH 구역 키(100)가 섞여 있음
+        existing = {100, 150, 73700}
+        existing_by_filter = {
+            100: "$$LAUNCH_0",
+            150: "$$LAUNCH_0",
+            73700: "$$HELSINKI_3",
+        }
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$LAUNCH_0",
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+            existing_by_filter=existing_by_filter,
+        )
+        # LAUNCH_0 keys 의 max(150) + step(50) = 200 (HELSINKI 구역 73755 로 가면 안 됨)
+        assert key == 200
+
+    def test_filter_scoped_first_entry(self):
+        """filter 로 쓰인 키가 없으면 category/reset_type 범위 max 로 폴백."""
+        existing = {30011, 30100}
+        existing_by_filter = {30011: "$$HELSINKI_3", 30100: "$$HELSINKI_3"}
+        key = suggest_next_parent_key(
+            existing,
+            filter_id="$$LAUNCH_0",  # 이 filter 로 쓰인 key 없음
+            reset_type="QUEST_RESET_TYPE_NONE",
+            category="QUEST_CATEGORY_GENERAL",
+            existing_by_filter=existing_by_filter,
+        )
+        # 폴백: in_range max(30100) + step(50) = 30150
+        assert key == 30150
+
+
+class TestStrKeyRejected:
+    """R-10: ^key 가 str 이면 ValueError (try/except pass 제거)."""
+
+    def test_str_key_rejected(self, quest_xlsx_copy):
+        row = dict(_MINIMAL_ROW)
+        row["^key"] = "abc"
+        with pytest.raises(ValueError, match="정수"):
+            append_quest_row(quest_xlsx_copy, row)
+
+    def test_bool_key_rejected(self, quest_xlsx_copy):
+        row = dict(_MINIMAL_ROW)
+        row["^key"] = True
+        with pytest.raises(ValueError, match="bool"):
+            append_quest_row(quest_xlsx_copy, row)
+
+
+class TestAtomicSave:
+    """R-07: _atomic_save 헬퍼 동작 — tmp 생성 + replace + 예외 시 원본 유지."""
+
+    def test_atomic_save_ok(self, quest_xlsx_copy):
+        """정상 경로: 파일이 갱신되고 tmp 가 남지 않음."""
+        import os as _os
+
+        append_quest_row(
+            quest_xlsx_copy,
+            {
+                "^key": 999111,
+                "category": "QUEST_CATEGORY_GENERAL",
+                "description": "atomic OK",
+                "count_type": "QUEST_COUNT_TYPE_SUM",
+                "goal_count": 1,
+                "reset_type": "QUEST_RESET_TYPE_NONE",
+                "goal_type/type/%key": "daily_login",
+            },
+        )
+        # tmp 잔재 없음
+        dir_name = _os.path.dirname(quest_xlsx_copy)
+        leftovers = [
+            f for f in _os.listdir(dir_name)
+            if f.startswith(".quest_writer_") and f.endswith(".xlsx.tmp")
+        ]
+        assert leftovers == [], f"tmp 잔재: {leftovers}"
+
+    def test_atomic_save_preserves_original_on_failure(self, tmp_path, monkeypatch):
+        """_atomic_save 내부에서 replace 실패 시 원본 파일 유지."""
+        import os as _os
+        import shutil
+        from quest_writer import _atomic_save
+
+        src = Path(__file__).parent / "fixtures" / "quests_test.xlsx"
+        target = tmp_path / "quests_atomic.xlsx"
+        shutil.copy(src, target)
+        target_str = str(target)
+        original_size = _os.path.getsize(target_str)
+
+        # openpyxl workbook 준비
+        from openpyxl import load_workbook
+        wb = load_workbook(target_str)
+
+        # os.replace 에서 예외 주입
+        orig_replace = _os.replace
+        def _bad_replace(*args, **kwargs):
+            raise RuntimeError("simulated replace failure")
+        monkeypatch.setattr(_os, "replace", _bad_replace)
+
+        try:
+            with pytest.raises(RuntimeError, match="simulated"):
+                _atomic_save(wb, target_str)
+        finally:
+            wb.close()
+            monkeypatch.setattr(_os, "replace", orig_replace)
+
+        # 원본 파일 크기 불변 (atomic 유지)
+        assert _os.path.getsize(target_str) == original_size
+        # tmp 정리됨
+        leftovers = [
+            f for f in _os.listdir(str(tmp_path))
+            if f.startswith(".quest_writer_") and f.endswith(".xlsx.tmp")
+        ]
+        assert leftovers == [], f"tmp 잔재: {leftovers}"

@@ -7,6 +7,7 @@ DEFAULT_CONFIG = {
     "quests_path": "",
     "items_path": "",
     "keywords_path": "",
+    "dialog_groups_path": "",
 }
 
 

@@ -274,12 +274,15 @@ Parent 보상: reward_id [30] qty [300] desc [전체 퀘스트 완료 보상]
 
 ## 3. TPL_C — 데일리 리셋 세트
 
+> 2026-04-24 정정: reset_type `REPEAT` → **`DAILY`** 로 변경 (실허용 3종: DAILY/NONE/REPEAT 중 데일리에는 DAILY 사용).  
+> 2026-04-24 정정: `reward_battle_road` count_type = **SUM** (이 문서 다른 섹션에서 HIGHEST 로 잘못 표기된 곳이 있었음).
+
 ### 3.1 정의
 
 | 항목 | 값 |
 |---|---|
-| 대표 실데이터 | `reset_type=QUEST_RESET_TYPE_REPEAT` + DAILY filter |
-| 건수 | parent N + child N×M (일반 N=10, M=6~9) |
+| 대표 실데이터 | `reset_type=QUEST_RESET_TYPE_DAILY` + DAILY filter |
+| 건수 | parent N + child N×M (일반 N=10, M=4~9) |
 | 적용 조건 | "매일 리셋되는 데일리 미션 세트" |
 
 ### 3.2 고정 필드
@@ -287,7 +290,7 @@ Parent 보상: reward_id [30] qty [300] desc [전체 퀘스트 완료 보상]
 | 필드 | parent | child |
 |---|---|---|
 | `category` | `QUEST_CATEGORY_GENERAL` | `QUEST_CATEGORY_GENERAL` |
-| `reset_type` | `QUEST_RESET_TYPE_REPEAT` | `QUEST_RESET_TYPE_REPEAT` |
+| `reset_type` | `QUEST_RESET_TYPE_DAILY` | `QUEST_RESET_TYPE_DAILY` |
 | `count_type` | `HIGHEST` | `SUM` |
 | `goal_type` (parent) | `reward_quest:ref_quest_ids` | - |
 | `reward_condition` | `None` (또는 `days_between:0,1` daily) | `None` |
@@ -319,7 +322,7 @@ for idx in range(num_parents):
 
 ### 3.5 검증
 
-- DAILY 퀘스트는 `reset_type=REPEAT` 필수
+- DAILY 퀘스트는 `reset_type=DAILY` 필수 (2026-04-24 정정 — REPEAT 는 데일리 메인의 옛 정의였음)
 - child 의 `reward_id` 가 소비형(재화/코인)인지 확인 (경고)
 - `filter` 가 DAILY 계열 keyword 인지 확인
 
@@ -586,7 +589,7 @@ def save_template_rows(rows: list[dict]) -> None:
 | `start_ts` | 입력 | 입력 | - | - | 입력 | - | 입력 |
 | `end_ts` | 입력 | 입력 | - | - | 입력 | - | 입력 |
 | `town_*` | - | - | - | 입력 | 입력 | - | 옵션 |
-| `reset_type` | NONE | NONE | **REPEAT** | NONE | NONE | **REPEAT** | 입력 |
+| `reset_type` | NONE | NONE | **DAILY** | NONE | NONE | **REPEAT** | 입력 |
 | `count_type` | parent HIGHEST / child SUM | 동일 | 동일 | SUM | SUM | SUM | 입력 |
 | `cond0` | - | - | - | `finish_town_dialog` 자동 | `finish_town_dialog` 자동 | - | 입력 |
 | `goal_type` | parent `reward_quest` 자동 / child 입력 | 동일 | 동일 | 입력 | 입력 | `pull_gacha` 자동 | 입력 |

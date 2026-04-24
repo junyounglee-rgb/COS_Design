@@ -1,3 +1,4 @@
 quests_path: "D:/COS_Project/cos-data/excel/quests.xlsx"
 items_path: "D:/COS_Project/cos-data/excel/items.xlsx"
 keywords_path: "D:/COS_Project/cos-data/excel/keywords.xlsx"
+dialog_groups_path: "D:/COS_Project/cos-data/excel/dialog_groups.xlsx"

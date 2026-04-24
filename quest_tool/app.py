@@ -7,14 +7,20 @@ import streamlit as st
 
 from config import load_config
 from quest_writer import (
+    DESC_PRESETS,
+    allocate_child_keys,
+    append_daily_set,
     append_quest_row,
     generate_unique_key,
     get_existing_keys,
+    get_existing_keys_by_filter,
     get_header_map,
+    load_dialog_groups,
     load_items,
     load_keywords,
     load_quest_templates,
     parse_quest_texts,
+    suggest_next_parent_key,
 )
 
 # ---------------------------------------------------------------------------
@@ -39,12 +45,12 @@ QUEST_TYPES = {
     },
     "데일리 서브": {
         "category": "QUEST_CATEGORY_GENERAL",
-        "reset_type": "QUEST_RESET_TYPE_REPEAT",
+        "reset_type": "QUEST_RESET_TYPE_DAILY",
         "count_type": "QUEST_COUNT_TYPE_SUM",
     },
     "데일리 메인": {
         "category": "QUEST_CATEGORY_GENERAL",
-        "reset_type": "QUEST_RESET_TYPE_REPEAT",
+        "reset_type": "QUEST_RESET_TYPE_DAILY",
         "count_type": "QUEST_COUNT_TYPE_HIGHEST",
         "goal_count": 9,
     },
@@ -129,18 +135,13 @@ GOAL_TYPES = [
     {"key": "entry_rank:rank", "label": "n등 달성", "params": [{"label": "rank", "free_text": True}]},
     {
         "key": "town_finish_dialog:ref_dialog_group_id",
-        "label": "광장 대화 완료",
-        "params": [{"label": "dialog_group_id", "free_text": True}],
+        "label": "광장 대화 완료(goal)",
+        "params": [{"label": "dialog_group_id", "dialog_picker": True}],
     },
     {
         "key": "town_use_landmark:ref_landmark_id",
         "label": "광장 랜드마크",
         "params": [{"label": "landmark_id", "free_text": True}],
-    },
-    {
-        "key": "finish_town_dialog:dialog_group_id",
-        "label": "광장 대화(finish)",
-        "params": [{"label": "dialog_group_id", "free_text": True}],
     },
 ]
 
@@ -175,7 +176,13 @@ CONDITIONS = [
     {
         "key": "play_mode_category:ref_display_category_id",
         "label": "모드 카테고리",
-        "params": [{"label": "id(상시=100,로테이션=200)", "options": ["100", "200"]}],
+        "params": [
+            {
+                "label": "id(상시=100,로테이션=200,특별이벤트=300)",
+                "options": ["100", "200", "300"],
+                "option_labels": {"100": "상시", "200": "로테이션", "300": "특별 이벤트"},
+            }
+        ],
     },
     {
         "key": "receive_quest_reward:ref_quest_id",
@@ -186,6 +193,11 @@ CONDITIONS = [
         "key": "play_with_costume:ref_costume_id",
         "label": "코스튬 착용",
         "params": [{"label": "costume_id", "free_text": True}],
+    },
+    {
+        "key": "finish_town_dialog:dialog_group_id",
+        "label": "광장 대화 완료",
+        "params": [{"label": "dialog_group_id", "dialog_picker": True}],
     },
 ]
 
@@ -200,10 +212,9 @@ _COUNT_TYPE_KEYS = ["SUM", "HIGHEST", "LOWEST", "STREAK"]
 _RESET_TYPES = [
     "QUEST_RESET_TYPE_NONE",
     "QUEST_RESET_TYPE_DAILY",
-    "QUEST_RESET_TYPE_WEEKLY",
     "QUEST_RESET_TYPE_REPEAT",
 ]
-_RESET_TYPE_KEYS = ["NONE", "DAILY", "WEEKLY", "REPEAT"]
+_RESET_TYPE_KEYS = ["NONE", "DAILY", "REPEAT"]
 
 
 # ---------------------------------------------------------------------------
@@ -245,36 +256,48 @@ def _get_header_map(quests_path: str) -> dict[str, int]:
     return get_header_map(quests_path, sheet="quests", header_row=3)
 
 
+@st.cache_data
+def _load_dialog_groups(dialog_groups_path: str) -> list[dict]:
+    return load_dialog_groups(dialog_groups_path)
+
+
 # ---------------------------------------------------------------------------
 # UI 위젯 함수
 # ---------------------------------------------------------------------------
 
 
 def select_or_paste(label: str, allowed: list[str], key: str, help: str = "") -> str | None:
-    """selectbox + text_input 조합. 허용 목록 외 입력 시 st.error 표시 + None 반환."""
-    MANUAL = "(직접 입력 / 붙여넣기)"
-    sel = st.selectbox(label, [MANUAL] + allowed, key=f"{key}_sel", help=help)
-    if sel == MANUAL:
-        val = st.text_input(
-            "",
-            placeholder="예) $$LAUNCH_0",
-            key=f"{key}_txt",
-            label_visibility="collapsed",
+    """허용 목록에서만 고르는 selectbox. (직접 입력 옵션은 제공하지 않음.)
+
+    decision 8 적용: $filter 등은 keywords.xlsx 에 정의된 id 만 허용.
+    필요한 id 가 없으면 keywords 에 먼저 추가한 뒤 툴을 재시작해야 한다.
+    """
+    if not allowed:
+        st.warning(
+            f"{label}: keywords 에 정의된 id 가 없습니다. "
+            "keywords.xlsx 에 먼저 id 를 추가한 뒤 툴을 재시작하세요."
         )
-    else:
-        val = sel
-    if val and val not in allowed:
-        st.error(f"허용 목록에 없는 값: `{val}`")
         return None
-    return val or None
+    PLACEHOLDER = "(선택)"
+    sel = st.selectbox(label, [PLACEHOLDER] + allowed, key=f"{key}_sel", help=help)
+    return sel if sel != PLACEHOLDER else None
 
 
-def render_param_fields(params: list[dict], prefix: str, items_list: list[dict]) -> list[str | None]:
+def render_param_fields(
+    params: list[dict],
+    prefix: str,
+    items_list: list[dict],
+    dialog_groups: list[dict] | None = None,
+) -> list[str | None]:
     """GoalType/Condition의 동적 param 필드 렌더링. 값 목록 반환."""
     values = []
+    dialog_groups = dialog_groups or []
     for i, p in enumerate(params):
         if p.get("options"):
-            v = st.selectbox(p["label"], p["options"], key=f"{prefix}_p{i}")
+            opts = p["options"]
+            option_labels = p.get("option_labels") or {}
+            fmt = (lambda x: f"{x} ({option_labels[x]})") if option_labels else (lambda x: x)
+            v = st.selectbox(p["label"], opts, key=f"{prefix}_p{i}", format_func=fmt)
         elif p.get("item_picker"):
             opts = [f"{it['id']}: {it['name']} ({it['category']})" for it in items_list]
             sel = st.selectbox(p["label"], ["(선택 안함)"] + opts, key=f"{prefix}_p{i}")
@@ -282,6 +305,22 @@ def render_param_fields(params: list[dict], prefix: str, items_list: list[dict])
                 v = str(items_list[opts.index(sel)]["id"])
             else:
                 v = ""
+        elif p.get("dialog_picker"):
+            if not dialog_groups:
+                v = st.text_input(
+                    p["label"] + " (dialog_groups 로드 실패 — 직접 입력)",
+                    key=f"{prefix}_p{i}",
+                )
+            else:
+                opts = [
+                    f"{g['id']} — {g.get('actor_name','')}: {str(g.get('dialog_text',''))[:40]}"
+                    for g in dialog_groups
+                ]
+                sel = st.selectbox(p["label"], ["(선택 안함)"] + opts, key=f"{prefix}_p{i}")
+                if sel != "(선택 안함)":
+                    v = str(dialog_groups[opts.index(sel)]["id"])
+                else:
+                    v = ""
         else:
             v = st.text_input(p["label"], key=f"{prefix}_p{i}")
         values.append(v if v else None)
@@ -293,17 +332,36 @@ def render_param_fields(params: list[dict], prefix: str, items_list: list[dict])
 # ---------------------------------------------------------------------------
 
 
-def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[str, str]]) -> None:
+def render_tab_add(
+    quests_path: str,
+    items_list: list[dict],
+    kw: dict[str, dict[str, str]],
+    dialog_groups: list[dict] | None = None,
+) -> None:
     st.title("퀘스트 단건 추가")
 
     build_kw = kw.get("build", {})
     ts_kw = kw.get("timestamp", {})
+    dialog_groups = dialog_groups or []
 
     # --- 퀘스트 타입 ---
     quest_type = st.selectbox("퀘스트 타입", list(QUEST_TYPES.keys()), key="quest_type_sel")
     tpl = QUEST_TYPES[quest_type]
 
     st.divider()
+
+    # --- ^key: 현재 퀘스트 타입의 카테고리/리셋타입 범위 기준으로 발급 ---
+    # quest_type이 바뀌었거나 auto_key가 None이면 재발급
+    cur_cat = tpl["category"]
+    cur_rt = tpl["reset_type"]
+    if (
+        st.session_state.auto_key is None
+        or st.session_state.get("auto_key_type") != quest_type
+    ):
+        st.session_state.auto_key = generate_unique_key(
+            st.session_state.existing_keys, category=cur_cat, reset_type=cur_rt
+        )
+        st.session_state.auto_key_type = quest_type
 
     # --- 기본 정보 ---
     col_key, col_cat = st.columns([1, 2])
@@ -318,6 +376,16 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
         ["$$" + k for k in build_kw.keys()],
         "filter",
     )
+
+    # description: 프리셋 selectbox -> text_area 에 삽입
+    desc_preset = st.selectbox(
+        "description 프리셋",
+        ["(사용 안함)"] + DESC_PRESETS,
+        key="desc_preset_sel",
+        help="선택 시 아래 text_area 에 삽입. {0} 은 게임 서버가 런타임에 goal_count 로 치환.",
+    )
+    if desc_preset != "(사용 안함)" and st.button("프리셋 적용", key="apply_desc_preset"):
+        st.session_state["desc_input"] = desc_preset
     description = st.text_area("description", height=68, key="desc_input")
     start_ts = select_or_paste(
         "start_timestamp",
@@ -351,7 +419,7 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
     goal_opts = [f"{g['key']} — {g['label']}" for g in GOAL_TYPES]
     goal_sel = st.selectbox("GoalType", goal_opts, key="goal_type_sel")
     goal_def = GOAL_TYPES[goal_opts.index(goal_sel)]
-    goal_params = render_param_fields(goal_def["params"], "goal", items_list)
+    goal_params = render_param_fields(goal_def["params"], "goal", items_list, dialog_groups)
 
     st.divider()
 
@@ -376,7 +444,7 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
                 label_visibility="collapsed",
             )
             cond_def = CONDITIONS[cond_opts.index(cond_sel)]
-            cond_ps = render_param_fields(cond_def["params"], f"cond_{ci}", items_list)
+            cond_ps = render_param_fields(cond_def["params"], f"cond_{ci}", items_list, dialog_groups)
             # 최대 2 param slot 패딩
             while len(cond_ps) < 2:
                 cond_ps.append(None)
@@ -511,9 +579,14 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
             target_row = append_quest_row(quests_path, field_values)
             st.success(f"^key {auto_key} 추가 완료 (Row {target_row})")
 
-            # 상태 갱신
+            # 상태 갱신: 같은 quest_type 기준으로 다음 키 발급
             st.session_state.existing_keys.add(auto_key)
-            st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
+            st.session_state.auto_key = generate_unique_key(
+                st.session_state.existing_keys,
+                category=tpl["category"],
+                reset_type=tpl["reset_type"],
+            )
+            st.session_state.auto_key_type = quest_type
             st.session_state.condition_count = 1
             st.cache_data.clear()
             st.rerun()
@@ -524,7 +597,304 @@ def render_tab_add(quests_path: str, items_list: list[dict], kw: dict[str, dict[
 
 
 # ---------------------------------------------------------------------------
-# Tab 2: 광장 배치 추가
+# Tab 2: TPL_C 데일리 세트 (parent + child N)
+# ---------------------------------------------------------------------------
+
+
+def _default_daily_children(n: int = 4) -> list[dict]:
+    """data_editor 기본 child 행 템플릿."""
+    return [
+        {
+            "^key (auto)": 0,
+            "description": "",
+            "goal_type_key": "play:need_win",
+            "goal_type_param1": "FALSE",
+            "goal_count": 1,
+            "reward_id": "",
+            "qty": 1,
+            "delete": False,
+        }
+        for _ in range(n)
+    ]
+
+
+def render_tab_daily_set(
+    quests_path: str,
+    items_list: list[dict],
+    kw: dict[str, dict[str, str]],
+    dialog_groups: list[dict] | None = None,
+) -> None:
+    """TPL_C: 데일리 parent + child N 을 한 번에 저장.
+
+    parent:
+        category=GENERAL, reset_type=DAILY, count_type=HIGHEST,
+        goal_type %key=reward_quest:ref_quest_ids,
+        goal_type %param1=[]{c1,c2,...} (child ^key 자동 생성, append_daily_set 에서 처리),
+        goal_count=N (child 개수, append_daily_set 에서 자동 채움)
+
+    child:
+        category=GENERAL, reset_type=DAILY, count_type=SUM,
+        goal_type / rewards / conditions 는 각 행에서 편집
+    """
+    st.title("데일리 세트 (parent + child)")
+    st.caption(
+        "parent 1건 + child N건 을 한 번에 기입합니다. "
+        "parent goal_type/type/%param1 은 child ^key 들로 자동 생성됩니다."
+    )
+
+    build_kw = kw.get("build", {})
+    ts_kw = kw.get("timestamp", {})
+
+    # --- 공통 필드 ---
+    st.subheader("공통 설정 (parent + child 모두 적용)")
+    col1, col2 = st.columns(2)
+    with col1:
+        daily_filter = select_or_paste(
+            "$filter", ["$$" + k for k in build_kw.keys()], "daily_filter"
+        )
+        daily_start = select_or_paste(
+            "start_timestamp", ["$$" + k for k in ts_kw.keys()], "daily_start"
+        )
+        daily_end = select_or_paste(
+            "end_timestamp", ["$$" + k for k in ts_kw.keys()], "daily_end"
+        )
+    with col2:
+        st.text_input("category", value="QUEST_CATEGORY_GENERAL", disabled=True, key="daily_cat_disp")
+        st.text_input("reset_type", value="QUEST_RESET_TYPE_DAILY", disabled=True, key="daily_rt_disp")
+
+    # R-09: filter 변경 감지 → daily_parent_key session_state 초기화 (key 재제안 반영)
+    last_filter = st.session_state.get("_last_daily_filter")
+    if last_filter != daily_filter:
+        st.session_state["_last_daily_filter"] = daily_filter
+        # session_state 에 남아있는 이전 filter 기반 값 제거 → text_input 이 value= 재반영
+        if "daily_parent_key" in st.session_state:
+            del st.session_state["daily_parent_key"]
+
+    st.divider()
+
+    # --- parent ---
+    st.subheader("parent 설정")
+
+    # parent key 제안 (filter+reset_type 기반, filter-scoped)
+    existing_by_filter: dict[int, str] | None = None
+    try:
+        if quests_path and Path(quests_path).exists():
+            existing_by_filter = get_existing_keys_by_filter(quests_path)
+    except Exception:
+        existing_by_filter = None
+
+    suggested_parent = suggest_next_parent_key(
+        st.session_state.existing_keys,
+        filter_id=daily_filter,
+        reset_type="QUEST_RESET_TYPE_DAILY",
+        category="QUEST_CATEGORY_GENERAL",
+        existing_by_filter=existing_by_filter,
+    )
+
+    col_pkey, col_pdesc = st.columns([1, 3])
+    with col_pkey:
+        parent_key_str = st.text_input(
+            "^key (parent, 수정 가능)",
+            value=str(suggested_parent),
+            key="daily_parent_key",
+        )
+    with col_pdesc:
+        # description 프리셋 selectbox
+        desc_preset_p = st.selectbox(
+            "parent description 프리셋",
+            ["(사용 안함)"] + DESC_PRESETS,
+            key="daily_parent_desc_preset",
+        )
+        if desc_preset_p != "(사용 안함)" and st.button("프리셋 적용", key="daily_parent_apply_preset"):
+            st.session_state["daily_parent_desc"] = desc_preset_p
+        parent_description = st.text_input(
+            "parent description",
+            key="daily_parent_desc",
+            placeholder="예) 데일리 퀘스트 완료",
+        )
+
+    st.divider()
+
+    # --- child 리스트 ---
+    st.subheader("child 리스트")
+
+    if "daily_children" not in st.session_state:
+        st.session_state.daily_children = _default_daily_children(4)
+
+    col_add, col_reset = st.columns([1, 1])
+    with col_add:
+        if st.button("+ child 추가", key="daily_add_child"):
+            st.session_state.daily_children.append(_default_daily_children(1)[0])
+    with col_reset:
+        if st.button("리스트 초기화 (4행)", key="daily_reset_children"):
+            st.session_state.daily_children = _default_daily_children(4)
+
+    goal_keys = [g["key"] for g in GOAL_TYPES]
+
+    df_children = pd.DataFrame(st.session_state.daily_children)
+    edited = st.data_editor(
+        df_children,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        column_config={
+            "^key (auto)": st.column_config.NumberColumn("^key (auto)", disabled=True),
+            "description": st.column_config.TextColumn("description", width="large"),
+            "goal_type_key": st.column_config.SelectboxColumn("GoalType", options=goal_keys),
+            "goal_type_param1": st.column_config.TextColumn("param1"),
+            "goal_count": st.column_config.NumberColumn("goal_count", min_value=1, default=1),
+            "reward_id": st.column_config.TextColumn("reward_id (items ^key)"),
+            "qty": st.column_config.NumberColumn("qty", min_value=1, default=1),
+            "delete": st.column_config.CheckboxColumn("삭제", default=False),
+        },
+        key="daily_children_editor",
+    )
+
+    # 삭제 제외한 실제 행
+    active_rows = edited[~edited["delete"]].to_dict("records")
+    n = len(active_rows)
+
+    # child ^key 자동 발급
+    try:
+        parent_key_int = int(parent_key_str)
+    except ValueError:
+        parent_key_int = None
+
+    child_keys: list[int] = []
+    if parent_key_int is not None and n > 0:
+        child_keys = allocate_child_keys(st.session_state.existing_keys, parent_key_int, n)
+    for i, ck in enumerate(child_keys):
+        active_rows[i]["^key (auto)"] = ck
+
+    # --- 미리보기 ---
+    st.divider()
+    st.subheader("미리보기")
+    st.caption(
+        f"parent ^key={parent_key_int}, child 수={n}, "
+        f"parent goal %param1 = []{{ {','.join(str(k) for k in child_keys)} }}"
+    )
+
+    preview_rows = []
+    if parent_key_int is not None:
+        preview_rows.append(
+            {
+                "^key": parent_key_int,
+                "role": "parent",
+                "description": parent_description,
+                "goal_type/type/%key": "reward_quest:ref_quest_ids",
+                "goal_type/type/%param1": "[]{" + ",".join(str(k) for k in child_keys) + "}",
+                "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+                "goal_count": n,
+            }
+        )
+    for i, row in enumerate(active_rows):
+        preview_rows.append(
+            {
+                "^key": row["^key (auto)"],
+                "role": f"child {i + 1}",
+                "description": row["description"],
+                "goal_type/type/%key": row["goal_type_key"],
+                "goal_type/type/%param1": row["goal_type_param1"],
+                "count_type": "QUEST_COUNT_TYPE_SUM",
+                "goal_count": row["goal_count"],
+            }
+        )
+    if preview_rows:
+        st.dataframe(
+            pd.DataFrame(preview_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --- 저장 버튼 ---
+    st.divider()
+    save_disabled = parent_key_int is None or n == 0 or not daily_filter or not parent_description
+    help_msgs = []
+    if parent_key_int is None:
+        help_msgs.append("parent ^key 가 정수여야 합니다.")
+    if n == 0:
+        help_msgs.append("child 행이 1개 이상 필요합니다.")
+    if not daily_filter:
+        help_msgs.append("$filter 를 선택해주세요.")
+    if not parent_description:
+        help_msgs.append("parent description 을 입력해주세요.")
+
+    if help_msgs:
+        for m in help_msgs:
+            st.warning(m)
+
+    if st.button(
+        f"{1 + n}행 일괄 저장 (parent + child {n})",
+        type="primary",
+        disabled=save_disabled,
+        key="daily_save_btn",
+    ):
+        # parent dict
+        parent_row: dict = {
+            "^key": parent_key_int,
+            "$filter": daily_filter,
+            "category": "QUEST_CATEGORY_GENERAL",
+            "description": parent_description,
+            "start_timestamp": daily_start,
+            "end_timestamp": daily_end,
+            "reset_type": "QUEST_RESET_TYPE_DAILY",
+            "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+            "goal_count": n,
+            "goal_type/type/%key": "reward_quest:ref_quest_ids",
+            # goal_type/type/%param1 은 append_daily_set 이 child ^key 로 자동 생성
+        }
+
+        # child dicts
+        child_rows: list[dict] = []
+        for i, row in enumerate(active_rows):
+            ck = child_keys[i]
+            reward_id_raw = row.get("reward_id")
+            try:
+                reward_id = int(reward_id_raw) if str(reward_id_raw).strip().isdigit() else None
+            except (ValueError, TypeError):
+                reward_id = None
+            child_dict = {
+                "^key": ck,
+                "$filter": daily_filter,
+                "category": "QUEST_CATEGORY_GENERAL",
+                "description": row["description"],
+                "start_timestamp": daily_start,
+                "end_timestamp": daily_end,
+                "reset_type": "QUEST_RESET_TYPE_DAILY",
+                "count_type": "QUEST_COUNT_TYPE_SUM",
+                "goal_count": int(row["goal_count"]) if row["goal_count"] else 1,
+                "goal_type/type/%key": row["goal_type_key"] or None,
+                "goal_type/type/%param1": row["goal_type_param1"] or None,
+            }
+            if reward_id is not None:
+                child_dict["rewards/0/id"] = reward_id
+                child_dict["rewards/0/qty"] = int(row["qty"]) if row["qty"] else 1
+            child_rows.append(child_dict)
+
+        try:
+            rows_written = append_daily_set(quests_path, parent_row, child_rows)
+            st.success(
+                f"데일리 세트 저장 완료: parent ^key={parent_key_int}, "
+                f"child ^keys={child_keys}, 기입 row={rows_written}"
+            )
+            # 세션 갱신
+            st.session_state.existing_keys.add(parent_key_int)
+            st.session_state.existing_keys.update(child_keys)
+            st.session_state.daily_children = _default_daily_children(4)
+            # R-09: 저장 성공 후 parent 입력 session_state 제거 → 새 값 재제안
+            for k in ("daily_parent_desc", "daily_parent_key", "_last_daily_filter"):
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.cache_data.clear()
+            st.rerun()
+        except ValueError as e:
+            st.error(f"저장 실패 (파일 저장 전 검증 실패 — 롤백됨): {e}")
+        except Exception as e:
+            st.error(f"저장 실패: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Tab 3: 광장 배치 추가
 # ---------------------------------------------------------------------------
 
 
@@ -546,7 +916,7 @@ def render_tab_plaza(quests_path: str, kw: dict[str, dict[str, str]]) -> None:
     with col2:
         batch_reset = st.selectbox(
             "reset_type",
-            ["QUEST_RESET_TYPE_NONE", "QUEST_RESET_TYPE_DAILY", "QUEST_RESET_TYPE_WEEKLY", "QUEST_RESET_TYPE_REPEAT"],
+            _RESET_TYPES,
             key="batch_reset",
         )
         batch_town_cat = st.selectbox(
@@ -619,7 +989,12 @@ def render_tab_plaza(quests_path: str, kw: dict[str, dict[str, str]]) -> None:
             fail_msgs = []
 
             for row in valid_rows:
-                new_key = generate_unique_key(st.session_state.existing_keys)
+                # 광장 배치는 항상 TOWN 카테고리
+                new_key = generate_unique_key(
+                    st.session_state.existing_keys,
+                    category="QUEST_CATEGORY_TOWN",
+                    reset_type=batch_reset,
+                )
 
                 fv = {
                     "^key": new_key,
@@ -651,9 +1026,10 @@ def render_tab_plaza(quests_path: str, kw: dict[str, dict[str, str]]) -> None:
             if fail_msgs:
                 st.error("\n".join(fail_msgs))
 
-            # 배치 초기화
+            # 배치 초기화: auto_key는 단건 탭 기준이라 다음 로드 시 재발급되도록 None
             st.session_state.batch_rows = []
-            st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
+            st.session_state.auto_key = None
+            st.session_state.auto_key_type = None
             st.rerun()
 
 
@@ -669,19 +1045,24 @@ def main() -> None:
     quests_path = cfg.get("quests_path", "")
     items_path = cfg.get("items_path", "")
     keywords_path = cfg.get("keywords_path", "")
+    dialog_groups_path = cfg.get("dialog_groups_path", "")
 
     # -- session_state 초기화 --
+    # auto_key는 quest_type에 따라 range가 달라지므로, render_tab_add에서 lazy하게 발급.
     if "existing_keys" not in st.session_state:
         if quests_path and Path(quests_path).exists():
             st.session_state.existing_keys = get_existing_keys(quests_path)
         else:
             st.session_state.existing_keys = set()
-    if "auto_key" not in st.session_state or st.session_state.auto_key is None:
-        st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
+    if "auto_key" not in st.session_state:
+        st.session_state.auto_key = None
+    if "auto_key_type" not in st.session_state:
+        st.session_state.auto_key_type = None
     if "condition_count" not in st.session_state:
         st.session_state.condition_count = 1
     if "batch_rows" not in st.session_state:
         st.session_state.batch_rows = []
+    # NOTE: daily_children 은 render_tab_daily_set 에서만 초기화 (이중 초기화 제거, R-04)
 
     # -- Sidebar: file paths --
     with st.sidebar:
@@ -690,9 +1071,10 @@ def main() -> None:
 
         st.subheader("File Paths")
         st.code(
-            f"quests:   {quests_path}\n"
-            f"items:    {items_path}\n"
-            f"keywords: {keywords_path}",
+            f"quests:        {quests_path}\n"
+            f"items:         {items_path}\n"
+            f"keywords:      {keywords_path}\n"
+            f"dialog_groups: {dialog_groups_path}",
             language=None,
         )
 
@@ -700,7 +1082,9 @@ def main() -> None:
             st.cache_data.clear()
             if quests_path and Path(quests_path).exists():
                 st.session_state.existing_keys = get_existing_keys(quests_path)
-            st.session_state.auto_key = generate_unique_key(st.session_state.existing_keys)
+            # auto_key는 render_tab_add 진입 시 현재 quest_type 기준으로 재발급
+            st.session_state.auto_key = None
+            st.session_state.auto_key_type = None
             st.rerun()
 
         st.divider()
@@ -746,6 +1130,15 @@ def main() -> None:
         else:
             st.write("#quest templates: (file not found)")
 
+        if dialog_groups_path and Path(dialog_groups_path).exists():
+            try:
+                dgs = _load_dialog_groups(dialog_groups_path)
+                st.write(f"dialog_groups.xlsx: ({len(dgs)} groups)")
+            except Exception as e:
+                st.write(f"dialog_groups.xlsx: {e}")
+        else:
+            st.write("dialog_groups.xlsx: (file not found or not set)")
+
     # -- Guard: required files must exist --
     missing = []
     if not quests_path:
@@ -772,11 +1165,22 @@ def main() -> None:
     items_list = _load_items(items_path)
     kw = _load_keywords(keywords_path)
 
+    # dialog_groups 는 선택 — 없으면 dialog_picker 가 free_text 로 폴백
+    dialog_groups: list[dict] = []
+    if dialog_groups_path and Path(dialog_groups_path).exists():
+        try:
+            dialog_groups = _load_dialog_groups(dialog_groups_path)
+        except Exception as e:
+            st.warning(f"dialog_groups 로드 실패: {e}. finish_town_dialog 는 직접 입력으로 폴백.")
+
     # -- Tabs --
-    tab_add, tab_plaza = st.tabs(["단건 추가", "광장 배치"])
+    tab_add, tab_daily, tab_plaza = st.tabs(["단건 추가", "데일리 세트", "광장 배치"])
 
     with tab_add:
-        render_tab_add(quests_path, items_list, kw)
+        render_tab_add(quests_path, items_list, kw, dialog_groups)
+
+    with tab_daily:
+        render_tab_daily_set(quests_path, items_list, kw, dialog_groups)
 
     with tab_plaza:
         render_tab_plaza(quests_path, kw)

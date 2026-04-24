@@ -109,19 +109,15 @@
 
 ## 6. 스펙 위반 이슈 (기획 확인 필요)
 
-### 6.1 reward_battle_road — SUM 사용
-- quest-data-qa 에이전트 내부 스펙: `reward_battle_road` → HIGHEST
+### 6.1 reward_battle_road — SUM 사용  ✅ 결정 2026-04-24: (a) SUM 확정
+- ~~quest-data-qa 에이전트 내부 스펙: `reward_battle_road` → HIGHEST~~
 - 실데이터: 20/20 SUM 사용 (HELSINKI_3 key 3041–3075)
-- **선택지**:
-  - (a) 스펙을 SUM 으로 정정 (현행 유지)
-  - (b) 데이터를 HIGHEST 로 일괄 교정 (런타임 영향 검토 필요)
+- **결정**: (a) 스펙을 SUM 으로 정정 (`C:\Users\Devsisters\.claude\agents\quest-data-qa.md` 업데이트 완료)
 
-### 6.2 play_mode_category param1 = 300
+### 6.2 play_mode_category param1 = 300  ✅ 결정 2026-04-24: (a) 정식 정의 추가
 - 에이전트 스펙: 100(상시), 200(로테이션)
 - 실데이터: key 60001–60005 에서 **300** 사용 (5건)
-- **선택지**:
-  - (a) 스펙에 `300: 시즌/특수` 정의 추가
-  - (b) 데이터 재검토 (300 이 의도된 값인지 확인)
+- **결정**: (a) 스펙에 **`300: 특별 이벤트`** 정의 추가 (에이전트/툴 모두 반영)
 
 ### 6.3 `conditions/2` 전혀 미사용
 - 52컬럼 중 Y/Z/AA (conditions/2) 는 1152행 모두 비어있음
@@ -216,14 +212,27 @@
 
 ## 10. 오픈 이슈 / 결정 대기
 
-| # | 이슈 | 담당 |
+> 2026-04-24 결정 반영 — 1·2·3·4·5 해결, 6은 상위 결정(8번) 으로 흡수.
+
+| # | 이슈 | 담당 | 상태 |
+|---|---|---|---|
+| 1 | `reward_battle_road` HIGHEST vs SUM | 기획 | ✅ 해결 (SUM 확정, quest-data-qa 스펙 정정) |
+| 2 | `play_mode_category` 300 정의 | 기획 | ✅ 해결 (300 = 특별 이벤트로 정식 정의) |
+| 3 | `description` 의 `<color=…>{0}회…</color>` 프리셋 제공 여부 | UX | ✅ 해결 (quest_writer.DESC_PRESETS 11건, app.py selectbox 제공) |
+| 4 | `dialog_group_id` FK 로더 추가 (dialog_groups.xlsx 연동) | 개발 | ✅ 해결 (load_dialog_groups + dialog_picker 위젯) |
+| 5 | parent-child 자동 key 발급 알고리즘 (기존 최대+step vs 수동) | UX | ✅ 해결 (c 혼합 — suggest_next_parent_key 자동 제안 + 사용자 편집 가능) |
+| 6 | `$filter` 는 keywords.build 에만 정의, quests 에서 신규 생성 금지 | 기획 | ✅ 결정 (select_or_paste 에서 "직접 입력" 제거) |
+
+### §0.5 `finish_town_dialog` + `play_mode_category` 병용 14건 검증 결과 (2026-04-24)
+
+실데이터 검증 — 두 condition 을 동시에 사용하는 행 14건 확인. 전부 `QUEST_CATEGORY_TOWN`.  
+TPL_E "모드 필터 적용" 토글 설계 근거 확보 (체크 시 conditions/1 에 play_mode_category 자동 삽입).
+
+| category id | 개수 | 의미 |
 |---|---|---|
-| 1 | `reward_battle_road` HIGHEST vs SUM | 기획 |
-| 2 | `play_mode_category` 300 정의 | 기획 |
-| 3 | `description` 의 `<color=…>{0}회…</color>` 프리셋 제공 여부 | UX |
-| 4 | `dialog_group_id` FK 로더 추가 (dialog_groups.xlsx 연동) | 개발 |
-| 5 | parent-child 자동 key 발급 알고리즘 (기존 최대+step vs 수동) | UX |
-| 6 | DAILY 계열 filter 네이밍 규칙 ($$DAILY_* 같은 prefix 도입 여부) | 기획 |
+| 100 | 상시 | 5601 등 |
+| 200 | 로테이션 | 11000190130 등 |
+| 300 | 특별 이벤트 | (신규 정의) |
 
 ---
 
