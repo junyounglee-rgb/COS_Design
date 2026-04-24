@@ -1,4 +1,5 @@
 """pytest 단위 테스트 -- quest_writer.py 읽기 전용 함수 + append 검증"""
+import os
 import sys
 from pathlib import Path
 
@@ -14,17 +15,23 @@ KEYWORDS_TEST = str(FIXTURES / "keywords_test.xlsx")
 DIALOG_GROUPS_TEST = str(FIXTURES / "dialog_groups_test.xlsx")
 
 from quest_writer import (
+    _HARDCODED_GOAL_TYPES,
     allocate_child_keys,
     append_daily_set,
     append_quest_row,
+    default_parent_desc,
+    extract_day_from_keyword,
     generate_unique_key,
     get_existing_keys,
     get_header_map,
     load_dialog_groups,
+    load_goal_types_yaml,
+    load_item_categories,
     load_items,
     load_keywords,
     load_quest_templates,
     parse_quest_texts,
+    save_goal_types_yaml,
     suggest_next_parent_key,
 )
 
@@ -249,6 +256,58 @@ class TestLoadItems:
         items = load_items(ITEMS_TEST)
         for item in items:
             assert item["id"] is not None
+
+    def test_item_has_filter_field(self):
+        """확장 필드 filter 포함 확인 (없으면 빈 문자열)."""
+        items = load_items(ITEMS_TEST)
+        assert len(items) > 0
+        for item in items:
+            assert "filter" in item, "filter 키 누락"
+            # items_test.xlsx 의 실 데이터는 $$LAUNCH_0 등이 있어야 함
+        # 최소 1개는 $$ 접두어 filter 를 가져야 함
+        assert any(i["filter"].startswith("$$") for i in items), "$$ 접두어 filter 부재"
+
+
+class TestLoadItemCategories:
+    def test_returns_list(self):
+        """반환 타입이 list인지 확인."""
+        cats = load_item_categories(ITEMS_TEST)
+        assert isinstance(cats, list)
+
+    def test_has_known_categories(self):
+        """실 데이터에서 복제한 픽스처 — 주요 카테고리 포함 확인."""
+        cats = load_item_categories(ITEMS_TEST)
+        keys = {c["key"] for c in cats}
+        for expected in [
+            "ITEM_CATEGORY_GENERAL",
+            "ITEM_CATEGORY_CURRENCY",
+            "ITEM_CATEGORY_COOKIE",
+            "ITEM_CATEGORY_COSTUME",
+        ]:
+            assert expected in keys, f"{expected} 누락 — {keys}"
+
+    def test_total_count(self):
+        """실 데이터 기준 23개 카테고리."""
+        cats = load_item_categories(ITEMS_TEST)
+        assert len(cats) >= 20, f"카테고리 개수 비정상: {len(cats)}"
+
+    def test_structure(self):
+        """각 항목이 {key, label} 구조."""
+        cats = load_item_categories(ITEMS_TEST)
+        assert len(cats) > 0
+        for c in cats:
+            assert "key" in c
+            assert "label" in c
+            assert c["key"].startswith("ITEM_CATEGORY_")
+
+    def test_empty_when_no_sheet(self, tmp_path):
+        """ItemCategory 시트 없는 파일 → 빈 리스트."""
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.title = "items"
+        p = tmp_path / "no_category.xlsx"
+        wb.save(str(p))
+        assert load_item_categories(str(p)) == []
 
     def test_id_is_int(self):
         """모든 id가 int 타입인지 확인."""
@@ -1034,3 +1093,115 @@ class TestAtomicSave:
             if f.startswith(".quest_writer_") and f.endswith(".xlsx.tmp")
         ]
         assert leftovers == [], f"tmp 잔재: {leftovers}"
+
+
+# ---------------------------------------------------------------------------
+# STEP D2 신규 테스트 — GoalType YAML + Daily Mission 헬퍼
+# ---------------------------------------------------------------------------
+
+
+class TestGoalTypesYaml:
+    """goal_types.yaml 로드/저장 라운드트립 + 폴백."""
+
+    def test_load_seed_from_default_path(self):
+        """기본 경로(quest_tool/goal_types.yaml) 로드 — 24+ 항목."""
+        data = load_goal_types_yaml()
+        assert isinstance(data, list)
+        assert len(data) >= 24, f"seed 로드 개수 부족: {len(data)}"
+
+    def test_load_contains_play_and_daily_login(self):
+        """실데이터 기준 핵심 항목 포함 확인."""
+        data = load_goal_types_yaml()
+        keys = {d["key"] for d in data}
+        assert "play" in keys, "play goal_type 누락 (실 child 8건 사용)"
+        assert "daily_login" in keys
+        assert "reward_quest:ref_quest_ids" in keys
+
+    def test_load_falls_back_on_missing_file(self, tmp_path):
+        """파일 부존재 시 하드코딩 폴백."""
+        nonexistent = tmp_path / "no_such.yaml"
+        data = load_goal_types_yaml(str(nonexistent))
+        assert isinstance(data, list)
+        assert len(data) == len(_HARDCODED_GOAL_TYPES)
+
+    def test_load_falls_back_on_invalid_yaml(self, tmp_path):
+        """YAML 파싱 실패 시 폴백."""
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("goal_types: {invalid: [unclosed", encoding="utf-8")
+        data = load_goal_types_yaml(str(bad))
+        assert data == list(_HARDCODED_GOAL_TYPES)
+
+    def test_load_falls_back_on_non_list_root(self, tmp_path):
+        """루트가 list 가 아닌 YAML → 폴백."""
+        bad = tmp_path / "wrong_shape.yaml"
+        bad.write_text("just_a_string", encoding="utf-8")
+        data = load_goal_types_yaml(str(bad))
+        assert data == list(_HARDCODED_GOAL_TYPES)
+
+    def test_save_and_reload_roundtrip(self, tmp_path):
+        """save → load 라운드트립 — 동일 데이터."""
+        sample = [
+            {"key": "daily_login", "label": "출석", "params": []},
+            {"key": "play:need_win", "label": "승리",
+             "params": [{"label": "need_win", "options": ["TRUE", "FALSE"]}]},
+            {"key": "custom_new", "label": "사용자 정의", "params": []},
+        ]
+        p = tmp_path / "custom.yaml"
+        save_goal_types_yaml(sample, str(p))
+        loaded = load_goal_types_yaml(str(p))
+        assert len(loaded) == 3
+        assert loaded[0]["key"] == "daily_login"
+        assert loaded[2]["key"] == "custom_new"
+        # params 보존
+        assert loaded[1]["params"][0]["options"] == ["TRUE", "FALSE"]
+
+    def test_save_filters_invalid_entries(self, tmp_path):
+        """key 누락 / 잘못된 타입은 save 때 skip."""
+        sample = [
+            {"key": "valid", "label": "OK", "params": []},
+            {"label": "no key - skip"},   # key 없음 → skip
+            "not a dict",                  # dict 아님 → skip
+            {"key": "", "label": "empty key - skip"},  # empty key → skip
+        ]
+        p = tmp_path / "filtered.yaml"
+        save_goal_types_yaml(sample, str(p))
+        loaded = load_goal_types_yaml(str(p))
+        assert len(loaded) == 1
+        assert loaded[0]["key"] == "valid"
+
+    def test_save_atomic_no_tmp_leftover(self, tmp_path):
+        """저장 후 tmp 잔재 없음."""
+        p = tmp_path / "atomic.yaml"
+        save_goal_types_yaml([{"key": "k1", "label": "L1", "params": []}], str(p))
+        leftovers = [f for f in os.listdir(str(tmp_path)) if f.startswith(".goal_types_tmp_")]
+        assert leftovers == []
+
+
+class TestDailyMissionHelpers:
+    """default_parent_desc / extract_day_from_keyword."""
+
+    def test_extract_day_nday_in_keyword(self):
+        assert extract_day_from_keyword("$$LAUNCH_0_NDAY1") == 1
+        assert extract_day_from_keyword("$$NDAY7") == 7
+        assert extract_day_from_keyword("NDAY42") == 42
+
+    def test_extract_day_case_insensitive(self):
+        assert extract_day_from_keyword("$$nday3") == 3
+        assert extract_day_from_keyword("$$Nday9") == 9
+
+    def test_extract_day_none_on_no_match(self):
+        assert extract_day_from_keyword("$$INDEFINITE_TIMESTAMP") is None
+        assert extract_day_from_keyword("") is None
+        assert extract_day_from_keyword(None) is None  # type: ignore
+
+    def test_default_parent_desc_with_day(self):
+        assert default_parent_desc("$$LAUNCH_0_NDAY1", 0) == "[데일리미션]1일차 전체 퀘스트 완료 보상"
+        assert default_parent_desc("$$NDAY3", 10) == "[데일리미션]3일차 전체 퀘스트 완료 보상"
+
+    def test_default_parent_desc_fallback_to_existing_plus_1(self):
+        assert default_parent_desc("$$INDEFINITE_TIMESTAMP", 5) == "[데일리미션]6일차 전체 퀘스트 완료 보상"
+
+    def test_default_parent_desc_minimum_1(self):
+        """fallback 도 최소 1일차."""
+        assert default_parent_desc("", 0) == "[데일리미션]1일차 전체 퀘스트 완료 보상"
+        assert default_parent_desc("", -5) == "[데일리미션]1일차 전체 퀘스트 완료 보상"

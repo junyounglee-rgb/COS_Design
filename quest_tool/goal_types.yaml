@@ -1,0 +1,147 @@
+# GoalType 목록 — quest tool 에서 사용하는 goal_type / %key 항목 정의.
+# 앱 기동 시 load_goal_types_yaml() 으로 로드. 파일 부존재 시 quest_writer._HARDCODED_GOAL_TYPES 폴백.
+# 설정 expander 의 편집 UI 에서 수정 가능. 저장 후 재시작 시 반영.
+#
+# 각 항목 스키마:
+#   - key: 실제 goal_type/%key 에 들어가는 식별자 (예: "daily_login", "play:need_win")
+#   - label: UI 표시 문자열
+#   - params: 파라미터 목록. 각 파라미터는 다음 필드 중 하나 이상:
+#       - label:         UI 라벨 (필수)
+#       - options:       고정 옵션 리스트 (dropdown)
+#       - free_text:     true 시 자유 입력
+#       - item_picker:   true 시 items.xlsx 피커
+#       - dialog_picker: true 시 dialog_groups.xlsx 피커
+#       - option_labels: options 의 한글/설명 매핑
+#
+# 참고: 실데이터에서 child 에 8회 쓰인 `play` (no suffix) 도 추가됨 (2026-04-24 Daily Mission 통합).
+goal_types:
+  - key: daily_login
+    label: 출석하기
+    params: []
+
+  - key: play
+    label: 플레이
+    params: []
+
+  - key: "play:need_win"
+    label: 플레이/승리
+    params:
+      - label: need_win
+        options: [FALSE, TRUE]
+
+  - key: "play_report:key"
+    label: 전투 리포트
+    params:
+      - label: key
+        options:
+          - PLAY_REPORT_KEY_KILL_COUNT
+          - PLAY_REPORT_KEY_DAMAGE_SUM
+          - PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT
+          - PLAY_REPORT_KEY_DEFAULT_SKILL_USAGE_COUNT
+          - PLAY_REPORT_KEY_SPECIAL_SKILL_USAGE_COUNT
+          - PLAY_REPORT_KEY_ULTIMATE_SKILL_USAGE_COUNT
+          - PLAY_REPORT_KEY_PLAY_DURATION
+          - PLAY_REPORT_KEY_EMOJI_USAGE_COUNT
+          - PLAY_REPORT_KEY_FIRST_KILL_TIME
+
+  - key: "open_battle_box:box_type"
+    label: 배틀박스 열기
+    params:
+      - label: box_type
+        options: [BOX_TYPE_BATTLE, BOX_TYPE_COIN, BOX_TYPE_COSTUME, BOX_TYPE_ALL]
+
+  - key: "pull_gacha:gacha_type"
+    label: 쿠키 뽑기
+    params:
+      - label: gacha_type
+        options: [GACHA_TYPE_COOKIE_GACHA, GACHA_TYPE_COOKIE_REMIX_GACHA, GACHA_TYPE_TREND_GACHA]
+
+  - key: "level_up_cookie:ref_cookie_id"
+    label: 쿠키 레벨업
+    params:
+      - label: "cookie_id (빈칸=전체)"
+        free_text: true
+
+  - key: "have_cookie:ref_cookie_id"
+    label: 쿠키 보유
+    params:
+      - label: cookie_id
+        free_text: true
+
+  - key: "get_item:ref_item_id"
+    label: 아이템 획득
+    params:
+      - label: item_id
+        item_picker: true
+
+  - key: "use_item:ref_item_id"
+    label: 아이템 사용
+    params:
+      - label: item_id
+        item_picker: true
+
+  - key: "have_item:ref_item_id"
+    label: 아이템 보유
+    params:
+      - label: item_id
+        item_picker: true
+
+  - key: "reward_quest:ref_quest_ids"
+    label: 퀘스트 완료
+    params:
+      - label: "[]{id1,id2,...}"
+        free_text: true
+
+  - key: achieve_smash_level
+    label: 성장레벨 달성
+    params: []
+
+  - key: get_ovencrown
+    label: 오븐크라운 획득
+    params: []
+
+  - key: have_highest_normal_ovencrown
+    label: 오븐크라운 점수
+    params: []
+
+  - key: send_friend_request
+    label: 친구 신청
+    params: []
+
+  - key: get_smash_pass_exp
+    label: 배틀패스 경험치
+    params: []
+
+  - key: play_mvp
+    label: MVP
+    params: []
+
+  - key: reward_battle_road
+    label: 배틀로드 박스
+    params: []
+
+  - key: achieve_cookie_level_all
+    label: 쿠키 레벨 총합
+    params: []
+
+  - key: reward_town_quest
+    label: 광장 퀘스트 완료
+    params: []
+
+  - key: "entry_rank:rank"
+    label: n등 달성
+    params:
+      - label: rank
+        free_text: true
+
+  - key: "town_finish_dialog:ref_dialog_group_id"
+    label: 광장 대화 완료(goal)
+    params:
+      - label: dialog_group_id
+        dialog_picker: true
+
+  - key: "town_use_landmark:ref_landmark_id"
+    label: 광장 랜드마크
+    params:
+      - label: landmark_id
+        free_text: true

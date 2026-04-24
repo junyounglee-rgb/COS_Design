@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | 1 | **TPL_A** | 시즌 이벤트 (7일차) | LAUNCH_0 70건 | parent 7 + child 63, 9 sub-quest |
 | 2 | **TPL_B** | 시즌 이벤트 (단축) | HELSINKI_3 70 / ISTANBUL_1 35 | parent N + child 5N, 5 sub-quest |
-| 3 | **TPL_C** | 데일리 리셋 세트 | DAILY 74건 | HIGHEST+reward_quest / SUM |
+| 3 | **TPL_C** | 데일리 미션 (통합) | DAILY 74건 | HIGHEST+reward_quest / SUM, parent+child 한 폼에서 일괄 입력 |
 | 4 | **TPL_D** | 광장 상시 NPC | TOWN NONE 268건 | finish_town_dialog 필수 |
 | 5 | **TPL_E** | 광장 이벤트 연동 | TOWN LAUNCH_0 328건 | TPL_D + 기간 한정 |
 | 6 | **TPL_F** | 반복 (REPEAT) | REPEAT 6건 | pull_gacha 전용 |
@@ -272,83 +272,123 @@ Parent 보상: reward_id [30] qty [300] desc [전체 퀘스트 완료 보상]
 
 ---
 
-## 3. TPL_C — 데일리 리셋 세트
+## 3. TPL_C — 데일리 미션 (통합)
 
-> 2026-04-24 정정: reset_type `REPEAT` → **`DAILY`** 로 변경 (실허용 3종: DAILY/NONE/REPEAT 중 데일리에는 DAILY 사용).  
-> 2026-04-24 정정: `reward_battle_road` count_type = **SUM** (이 문서 다른 섹션에서 HIGHEST 로 잘못 표기된 곳이 있었음).
+> **2026-04-24 통합**: 기존 parent-only / child-only 2개의 분리 타입을 **"데일리 미션" 단일 타입** 으로 병합했다.
+> parent 는 독립 존재 불가 — 반드시 N 건의 child 를 `reward_quest:ref_quest_ids` 로 참조해야 하므로, 두 타입을 나눠 입력하면 부정합 가능성이 커서 **Tab 1 내 "데일리 미션"** 하나에서 parent+child 를 일괄 입력한다.
+>
+> 2026-04-24 정정: reset_type `REPEAT` → **`DAILY`**.
+> 2026-04-24 정정: `reward_battle_road` count_type = **SUM**.
 
 ### 3.1 정의
 
 | 항목 | 값 |
 |---|---|
-| 대표 실데이터 | `reset_type=QUEST_RESET_TYPE_DAILY` + DAILY filter |
-| 건수 | parent N + child N×M (일반 N=10, M=4~9) |
+| 대표 실데이터 | `reset_type=QUEST_RESET_TYPE_DAILY` + DAILY/LAUNCH_0 filter |
+| 실 데이터 patterns | parent 8건 (^key 40001~40081), child 40건 (parent 당 5건 고정) |
 | 적용 조건 | "매일 리셋되는 데일리 미션 세트" |
 
-### 3.2 고정 필드
+### 3.2 고정 필드 (자동 강제, UI 편집 불가)
 
-| 필드 | parent | child |
+#### parent 자동
+| 필드 | 값 | 근거 |
 |---|---|---|
-| `category` | `QUEST_CATEGORY_GENERAL` | `QUEST_CATEGORY_GENERAL` |
-| `reset_type` | `QUEST_RESET_TYPE_DAILY` | `QUEST_RESET_TYPE_DAILY` |
-| `count_type` | `HIGHEST` | `SUM` |
-| `goal_type` (parent) | `reward_quest:ref_quest_ids` | - |
-| `reward_condition` | `None` (또는 `days_between:0,1` daily) | `None` |
-| `filter` | `$$DAILY` 류 (사용자 선택) | 동일 |
+| `category` | `QUEST_CATEGORY_GENERAL` | 실 8건 전수 일치 |
+| `count_type` | `QUEST_COUNT_TYPE_HIGHEST` | TPL_C 불변식 |
+| `reset_type` | `QUEST_RESET_TYPE_DAILY` | 실 8건 일치 |
+| `goal_type/type/%key` | `reward_quest:ref_quest_ids` | 강제 |
+| `goal_type/type/%param1` | `[]{c1,c2,...,cN}` | child ^key 자동 조립 |
+| `goal_count` | N (= len(children)) | 사용자 입력 |
+
+#### child 자동 상속
+| 필드 | 값 | 근거 |
+|---|---|---|
+| `$filter` | parent 상속 | 실 40건 전수 일치 |
+| `start_timestamp` | parent 상속 | 실 40건 전수 일치 |
+| `end_timestamp` | parent 상속 | 실 40건 전수 일치 |
+| `category` | `QUEST_CATEGORY_GENERAL` | 실 40건 일치 |
+| `count_type` | `QUEST_COUNT_TYPE_SUM` | 실 40건 일치 |
+| `reset_type` | `QUEST_RESET_TYPE_DAILY` | 실 40건 일치 |
 
 ### 3.3 사용자 입력
 
-**Level-1**
+**공통 (parent + 전 child 공유)**
 
 | 필드 | 타입 |
 |---|---|
-| `filter` | select (DAILY keyword 풀) |
-| `start_parent_key` | int |
-| `num_children_per_parent` | int (기본 **6**) |
-| `parent_key_step` | int (기본 **10**) |
-| `goal_count_for_parent` | int (= num_children 또는 -1) |
+| `$filter` | select (keywords.build) |
+| `start_timestamp` | select (keywords.timestamp) |
+| `end_timestamp` | select (keywords.timestamp) |
+| `goal_count` (= N) | number_input (1~20, 기본 5) |
+| parent `^key` | text_input (`suggest_next_parent_key` 자동 제안, 수정 가능) |
+| parent description | text_input (`[데일리미션]{day}일차 전체 퀘스트 완료 보상` 자동 프리필, 수정 가능) |
 
-**Level-2**: child 행별 `goal_type`, `target`, `reward_id`, `reward_qty`.
+**child 행별 수동** (N 건 동적 생성)
+
+| 필드 | 위젯 | 비고 |
+|---|---|---|
+| `description` | text_input | placeholder `1일차(승리 4회)` |
+| `goal_type/%key` | selectbox | `goal_types.yaml` 기반 |
+| `goal_type/%param1` | 동적 위젯 | `%key` 에 연동 (dropdown/free_text/item_picker 등) |
+| `goal_count` | number_input | 정수 ≥ 1 |
+| `reward_category` | selectbox | `#ItemCategory` 시트 23개 카테고리 |
+| `reward_id` | selectbox | 선택 category 의 items 만 필터. 표시: `{^key} \| {name} \| {$filter}` |
+| `reward_qty` | number_input | 정수 ≥ 1 |
 
 ### 3.4 자동 유도
 
-```
-for idx in range(num_parents):
-    pkey = start_parent_key + idx * parent_key_step
-    child_keys = [pkey + 1 + i for i in range(num_children_per_parent)]
-    parent.goal_count = goal_count_for_parent
-    parent.goal_type.param1 = "[]{" + ",".join(ck) + "}"
+```python
+# child ^key 자동 발급
+child_keys = allocate_child_keys(existing_keys, parent_key, N)
+
+# parent goal_type %param1 조립
+parent["goal_type/type/%param1"] = "[]{" + ",".join(str(ck) for ck in child_keys) + "}"
+
+# parent description 자동 프리필
+day = extract_day_from_keyword(start_timestamp)  # "$$LAUNCH_0_NDAY1" → 1
+parent["description"] = f"[데일리미션]{day}일차 전체 퀘스트 완료 보상"
 ```
 
 ### 3.5 검증
 
-- DAILY 퀘스트는 `reset_type=DAILY` 필수 (2026-04-24 정정 — REPEAT 는 데일리 메인의 옛 정의였음)
-- child 의 `reward_id` 가 소비형(재화/코인)인지 확인 (경고)
-- `filter` 가 DAILY 계열 keyword 인지 확인
+- parent/child `reset_type` = `QUEST_RESET_TYPE_DAILY` 일치
+- parent `count_type` = HIGHEST (고정)
+- child `count_type` = SUM (고정)
+- parent `goal_type/%param1` = `[]{c1,...,cN}` 형식, 각 `ck` 가 child ^key 에 존재
+- parent `goal_count` = len(children) = N
+- child `reward_id` 가 items.xlsx `^key` 에 존재 (selectbox 가 차단하므로 기본 PASS)
+- `$filter` 가 keywords.build 에 존재
 
 ### 3.6 UI 와이어프레임
 
 ```
-[탭: 데일리 세트]
+[Tab 1: 퀘스트 추가]
 ─────────────────────────────────────────────────────────────────
-공용 설정
-  filter: [$$DAILY ▼]   start_parent_key: [1000]
-  num_parents: [10]   children_per_parent: [6]   parent_step: [10]
+퀘스트 타입: [데일리 미션 ▼]
+─────────────────────────────────────────────────────────────────
+공통 필드
+  $filter: [$$LAUNCH_0 ▼]   start: [$$INDEFINITE ▼]   end: [$$INDEFINITE ▼]
+  category(자동): QUEST_CATEGORY_GENERAL   reset_type(자동): DAILY   count_type(자동): HIGHEST
 
-[Set 1 (pkey=1000)] [Set 2 (1010)] ... [Set 10 (1090)]
+parent 설정
+  ^key (parent): [40001]   goal_count(=N): [5]
+  parent description: [[데일리미션]1일차 전체 퀘스트 완료 보상]  ← 자동 프리필
 
-── Set 1 (parent=1000) ──
-Parent desc: [데일리 미션 완료 세트]   reward: [30] qty [100]
-┌───┬────────┬──────────────────┬──────┬─────────┬──────────┬──────┐
-│ # │ ckey   │ goal_type         │ prm1 │ target  │ reward_id│ qty  │
-├───┼────────┼──────────────────┼──────┼─────────┼──────────┼──────┤
-│ 1 │ 1001   │ [play_report:key▼]│ KILL │ [10]    │ [10]     │ [50] │
-│ 2 │ 1002   │ [play           ▼]│      │ [3]     │ [1]      │ [500]│
-│ ...                                                                │
-│ 6 │ 1006   │ [daily_login    ▼]│      │ [1]     │ [20001]  │ [1]  │
-└───┴────────┴──────────────────┴──────┴─────────┴──────────┴──────┘
+child 리스트 (N=5)
+  ┌─ child 1  ^key=40002 ────────────────────────────────────────
+  │ description: [1일차(승리 4회)]   goal_count: [4]
+  │ goal_type/%key: [play:need_win — 플레이/승리 ▼]
+  │   param1: [TRUE ▼]
+  │ reward_category: [ITEM_CATEGORY_COIN ▼]
+  │   reward_id: [4002 | 코인(1000개) | $$LAUNCH_0 ▼]   qty: [1]
+  └──
+  ┌─ child 2  ^key=40003 ────────────────────────────────────────
+  │ ...
+  └──
+  ...
 
-[미리보기(70행)] [저장]
+미리보기 (6행 = parent 1 + child 5)
+[일괄 저장]
 ```
 
 ---
@@ -533,7 +573,7 @@ filter [$$REPEAT ▼]
 ```python
 TEMPLATES = {
     "개별":             render_tpl_g,
-    "데일리 세트":       render_tpl_c,
+    "데일리 미션":       render_tpl_c,  # 2026-04-24 "데일리 세트" → "데일리 미션" 으로 리네임 (parent+child 통합)
     "시즌 이벤트(7일)":  render_tpl_a,
     "시즌 이벤트(단축)": render_tpl_b,
     "광장 상시":         render_tpl_d,

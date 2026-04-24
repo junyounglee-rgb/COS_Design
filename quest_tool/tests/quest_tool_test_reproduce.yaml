@@ -1,0 +1,4 @@
+quests_path: "D:/claude_make/quest_tool/tests/fixtures/quests_test_reproduce.xlsx"
+items_path: "D:/claude_make/quest_tool/tests/fixtures/items_test.xlsx"
+keywords_path: "D:/claude_make/quest_tool/tests/fixtures/keywords_test.xlsx"
+dialog_groups_path: "D:/claude_make/quest_tool/tests/fixtures/dialog_groups_test.xlsx"

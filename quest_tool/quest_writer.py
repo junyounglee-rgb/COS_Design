@@ -4,6 +4,7 @@ Streamlit에 의존하지 않는 순수 Python 함수로 구현.
 캐시는 app.py에서 @st.cache_data로 감쌀 예정.
 """
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,19 @@ from openpyxl import load_workbook
 _BASE_PATH_PREFIX = "quests/^0/"
 _PATH_ROW = 2
 _HEADER_ROW = 3
+
+# goal_types.yaml seed — 파일 부존재 시 폴백.
+# UI 쪽의 GOAL_TYPES 하드코딩과 동기 유지. `play` 추가 (실데이터 child 8건 사용).
+_HARDCODED_GOAL_TYPES: list[dict] = [
+    {"key": "daily_login", "label": "출석하기", "params": []},
+    {"key": "play", "label": "플레이", "params": []},
+    {"key": "play:need_win", "label": "플레이/승리",
+     "params": [{"label": "need_win", "options": ["FALSE", "TRUE"]}]},
+    {"key": "play_mvp", "label": "MVP", "params": []},
+    {"key": "reward_quest:ref_quest_ids", "label": "퀘스트 완료",
+     "params": [{"label": "[]{id1,id2,...}", "free_text": True}]},
+    # ... 상세 목록은 goal_types.yaml 참조. seed 만 제공.
+]
 
 
 # ---------------------------------------------------------------------------
@@ -223,17 +237,18 @@ def generate_unique_key(
 
 
 def load_items(items_path: str) -> list[dict]:
-    """items.xlsx -> [{id: int, name: str, category: str}] 목록.
-    헤더행 3, 컬럼: ^key, name, category를 _build_header_map()으로 동적 탐색.
-    id가 없는 행 제외."""
+    """items.xlsx -> [{id: int, name: str, category: str, filter: str}] 목록.
+    헤더행 3, 컬럼: ^key, name, category, $filter 을 _build_header_map()으로 동적 탐색.
+    id가 없는 행 제외. filter 는 누락 시 빈 문자열."""
     wb = load_workbook(items_path, read_only=True, data_only=True)
     try:
-        ws = wb[wb.sheetnames[0]]
+        ws = wb["items"] if "items" in wb.sheetnames else wb[wb.sheetnames[0]]
         header_map = _build_header_map(ws, header_row=3, base_prefix="")
 
         key_col = header_map.get("^key")
         name_col = header_map.get("name")
         cat_col = header_map.get("category")
+        filter_col = header_map.get("$filter")
 
         if key_col is None:
             return []
@@ -250,13 +265,55 @@ def load_items(items_path: str) -> list[dict]:
 
             name = row[name_col - 1] if name_col else None
             category = row[cat_col - 1] if cat_col else None
+            filter_val = row[filter_col - 1] if filter_col else None
 
             items.append({
                 "id": item_id,
                 "name": str(name) if name is not None else "",
                 "category": str(category) if category is not None else "",
+                "filter": str(filter_val) if filter_val is not None else "",
             })
         return items
+    finally:
+        wb.close()
+
+
+def load_item_categories(items_path: str) -> list[dict]:
+    """items.xlsx `# ItemCategory` 시트 -> [{key, label}] 목록.
+    시트 구조 (실 데이터 기준):
+      Row 1: header (A='key', B='value') — 한글 라벨과 enum 값 매핑
+      Row 2+: A=라벨(한글), B=enum 값 (ITEM_CATEGORY_*)
+    반환 형식: [{"key": "ITEM_CATEGORY_GENERAL", "label": "일반"}, ...]
+    시트 부존재 시 빈 리스트 반환."""
+    wb = load_workbook(items_path, read_only=True, data_only=True)
+    try:
+        sheet_name = None
+        for s in wb.sheetnames:
+            # '# ItemCategory' 또는 유사 시트명 대응 (공백/대소문자 관대)
+            if s.strip().lower() in ("# itemcategory", "#itemcategory", "itemcategory"):
+                sheet_name = s
+                break
+        if sheet_name is None:
+            return []
+
+        ws = wb[sheet_name]
+        categories: list[dict] = []
+        # Row 1 은 헤더 ('key', 'value'), Row 2 부터 데이터
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or len(row) < 2:
+                continue
+            label = row[0]
+            key = row[1]
+            if key is None:
+                continue
+            key_str = str(key).strip()
+            if not key_str.startswith("ITEM_CATEGORY_"):
+                continue
+            categories.append({
+                "key": key_str,
+                "label": str(label).strip() if label is not None else key_str,
+            })
+        return categories
     finally:
         wb.close()
 
@@ -884,3 +941,155 @@ def parse_quest_texts(pasted_text: str, quest_templates: dict[str, str]) -> list
             "delete": False,
         })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# GoalType YAML 로더 (설정 editable)
+# ---------------------------------------------------------------------------
+
+def _default_goal_types_path() -> str:
+    """quest_tool/goal_types.yaml 기본 경로."""
+    return str(Path(__file__).parent / "goal_types.yaml")
+
+
+def load_goal_types_yaml(yaml_path: str | None = None) -> list[dict]:
+    """goal_types.yaml → list[dict] (GOAL_TYPES 포맷).
+    파일 부존재/파싱 실패 시 _HARDCODED_GOAL_TYPES 폴백.
+    YAML 포맷:
+        goal_types:
+          - key: ...
+            label: ...
+            params:
+              - label: ...
+                options: [...]
+                free_text: true|false
+                item_picker: true|false
+                dialog_picker: true|false
+                option_labels: {"100": "상시", ...}
+    """
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return list(_HARDCODED_GOAL_TYPES)
+
+    path = yaml_path or _default_goal_types_path()
+    if not os.path.exists(path):
+        return list(_HARDCODED_GOAL_TYPES)
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        return list(_HARDCODED_GOAL_TYPES)
+
+    if not isinstance(data, dict):
+        return list(_HARDCODED_GOAL_TYPES)
+
+    items = data.get("goal_types")
+    if not isinstance(items, list) or not items:
+        return list(_HARDCODED_GOAL_TYPES)
+
+    result: list[dict] = []
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("key")
+        if not key or not isinstance(key, str):
+            continue
+        label = entry.get("label") or key
+        params = entry.get("params") or []
+        if not isinstance(params, list):
+            params = []
+        # params 검증: 각 항목은 dict 이고 최소 label 필드 보유
+        clean_params: list[dict] = []
+        for p in params:
+            if not isinstance(p, dict):
+                continue
+            if "label" not in p:
+                continue
+            clean_params.append(p)
+        result.append({"key": key, "label": str(label), "params": clean_params})
+    return result if result else list(_HARDCODED_GOAL_TYPES)
+
+
+def save_goal_types_yaml(goal_types: list[dict], yaml_path: str | None = None) -> None:
+    """goal_types.yaml atomic 저장.
+    입력 포맷은 load_goal_types_yaml() 반환과 동일.
+    tmp + os.replace 로 기록."""
+    try:
+        import yaml  # type: ignore
+    except ImportError as e:
+        raise RuntimeError("PyYAML 이 설치되어 있지 않습니다") from e
+
+    path = yaml_path or _default_goal_types_path()
+
+    # 검증: 각 entry 는 key/label/params 필수
+    clean: list[dict] = []
+    for entry in goal_types:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("key")
+        if not key or not isinstance(key, str):
+            continue
+        label = entry.get("label") or key
+        params = entry.get("params") or []
+        clean.append({"key": key, "label": str(label), "params": params})
+
+    payload = {"goal_types": clean}
+    data_dir = os.path.dirname(path) or "."
+    os.makedirs(data_dir, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=".goal_types_tmp_", suffix=".yaml", dir=data_dir
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                payload, f, allow_unicode=True, sort_keys=False,
+                default_flow_style=False,
+            )
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Daily Mission 헬퍼
+# ---------------------------------------------------------------------------
+
+_DAY_KEYWORD_RE = re.compile(r"NDAY(\d+)", re.IGNORECASE)
+
+
+def extract_day_from_keyword(timestamp: str) -> int | None:
+    """start_timestamp 문자열에서 N일차 추출.
+    예:
+      "$$LAUNCH_0_NDAY1" → 1
+      "$$NDAY7"          → 7
+      "$$INDEFINITE_TIMESTAMP" → None
+      ""                 → None
+    """
+    if not timestamp or not isinstance(timestamp, str):
+        return None
+    m = _DAY_KEYWORD_RE.search(timestamp)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except (ValueError, TypeError):
+        return None
+
+
+def default_parent_desc(start_timestamp: str, existing_parent_count: int = 0) -> str:
+    """데일리 미션 parent description 자동 생성.
+    실데이터 패턴: `[데일리미션]N일차 전체 퀘스트 완료 보상`
+    start_timestamp 에서 NDAY 추출 실패 시 existing_parent_count + 1 폴백.
+    """
+    day = extract_day_from_keyword(start_timestamp or "")
+    if day is None:
+        day = max(1, existing_parent_count + 1)
+    return f"[데일리미션]{day}일차 전체 퀘스트 완료 보상"
