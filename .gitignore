@@ -5,6 +5,8 @@ excel_search/index.db-wal
 
 # 사용자 설정 파일 (로컬 경로 포함)
 excel_search/config.txt
+autopull/autopull_branches.yaml
+cherry_pick/cherry_pick.yaml
 
 # Python 가상환경
 excel_search/.venv/

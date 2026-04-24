@@ -1,6 +1,5 @@
 branches:
 - main
 - release_istanbul
-- release_helsinki3
-- release_helsinki_vng
+- release_istanbul2
 repo_path: D:\COS_Project\cos-data
