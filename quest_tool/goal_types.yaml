@@ -27,7 +27,7 @@ goal_types:
     label: 플레이/승리
     params:
       - label: need_win
-        options: [FALSE, TRUE]
+        options: ["FALSE", "TRUE"]
 
   - key: "play_report:key"
     label: 전투 리포트

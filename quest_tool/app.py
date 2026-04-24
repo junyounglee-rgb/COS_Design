@@ -1386,7 +1386,7 @@ def main() -> None:
                             "key": entry.get("key", ""),
                             "label": entry.get("label", ""),
                             "param_label": p.get("label", ""),
-                            "param_options": ";".join(p.get("options", []) or []),
+                            "param_options": ";".join(str(o) for o in (p.get("options", []) or [])),
                             "free_text": bool(p.get("free_text", False)),
                             "item_picker": bool(p.get("item_picker", False)),
                             "dialog_picker": bool(p.get("dialog_picker", False)),
