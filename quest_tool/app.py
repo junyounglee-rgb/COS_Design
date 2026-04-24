@@ -10,9 +10,11 @@ from quest_writer import (
     DESC_PRESETS,
     allocate_child_keys,
     append_daily_set,
+    append_nday_mission_event,
     append_quest_row,
     default_parent_desc,
     generate_unique_key,
+    get_existing_event_keys,
     get_existing_keys,
     get_existing_keys_by_filter,
     get_header_map,
@@ -21,9 +23,11 @@ from quest_writer import (
     load_item_categories,
     load_items,
     load_keywords,
+    load_nday_mission_events,
     load_quest_templates,
     parse_quest_texts,
     save_goal_types_yaml,
+    suggest_next_event_key,
     suggest_next_parent_key,
 )
 
@@ -191,6 +195,11 @@ def _load_dialog_groups(dialog_groups_path: str) -> list[dict]:
     return load_dialog_groups(dialog_groups_path)
 
 
+@st.cache_data
+def _load_nday_events(path: str) -> list[dict]:
+    return load_nday_mission_events(path)
+
+
 # ---------------------------------------------------------------------------
 # UI 위젯 함수
 # ---------------------------------------------------------------------------
@@ -267,6 +276,7 @@ def render_tab_add(
     items_list: list[dict],
     kw: dict[str, dict[str, str]],
     dialog_groups: list[dict] | None = None,
+    nday_mission_events_path: str = "",
 ) -> None:
     st.title("퀘스트 추가")
 
@@ -280,7 +290,7 @@ def render_tab_add(
 
     # --- 데일리 미션 분기 (parent + child N 통합 폼) ---
     if tpl.get("is_daily_mission"):
-        render_daily_mission_form(quests_path, items_list, kw, dialog_groups)
+        render_daily_mission_form(quests_path, items_list, kw, dialog_groups, nday_mission_events_path=nday_mission_events_path)
         return
 
     st.divider()
@@ -573,6 +583,7 @@ def render_daily_mission_form(
     items_list: list[dict],
     kw: dict[str, dict[str, str]],
     dialog_groups: list[dict] | None = None,
+    nday_mission_events_path: str = "",
 ) -> None:
     """데일리 미션 (통합): parent + child N 을 한 번에 저장.
 
@@ -873,13 +884,96 @@ def render_daily_mission_form(
             hide_index=True,
         )
 
+    # --- nday_mission_events 설정 ---
+    st.divider()
+    st.subheader("nday_mission_events 설정")
+
+    # 기존 이벤트 key 로드
+    existing_event_keys: set[int] = set()
+    if nday_mission_events_path and Path(nday_mission_events_path).exists():
+        try:
+            existing_event_keys = get_existing_event_keys(nday_mission_events_path)
+        except Exception:
+            existing_event_keys = set()
+
+    # 그룹 목록 계산: 기존 사용 그룹(100단위) + 다음 신규 그룹
+    used_groups: set[int] = set()
+    for ek in existing_event_keys:
+        used_groups.add((ek // 100) * 100)
+    # 신규 그룹 = 기존 최대 그룹 + 100 (없으면 100부터 시작)
+    next_new_group = (max(used_groups) + 100) if used_groups else 100
+    all_groups = sorted(used_groups | {next_new_group})
+    group_labels = [str(g) for g in all_groups]
+
+    col_grp, col_ekey = st.columns([1, 1])
+    with col_grp:
+        sel_group_label = st.selectbox(
+            "이벤트 그룹 (100단위)",
+            group_labels,
+            index=len(group_labels) - 1,  # 기본: 가장 큰 그룹(신규)
+            key="dm_event_group",
+            help="기존 사용 그룹 + 다음 신규 100단위 그룹",
+        )
+    sel_group_base = int(sel_group_label)
+
+    # 그룹 변경 감지 → dm_event_key 재계산
+    last_group = st.session_state.get("_last_dm_event_group")
+    if last_group != sel_group_base:
+        st.session_state["_last_dm_event_group"] = sel_group_base
+        if "dm_event_key" in st.session_state:
+            del st.session_state["dm_event_key"]
+
+    # ^key 자동 제안
+    try:
+        suggested_ekey = suggest_next_event_key(existing_event_keys, sel_group_base)
+    except ValueError:
+        suggested_ekey = sel_group_base + 1  # 폴백
+
+    with col_ekey:
+        event_key_str = st.text_input(
+            "events ^key (수정 가능)",
+            value=str(suggested_ekey),
+            key="dm_event_key",
+        )
+
+    col_edesc, col_ddesc = st.columns(2)
+    with col_edesc:
+        event_description = st.text_input(
+            "events.description (UI용 이벤트 이름)",
+            key="dm_event_desc",
+            placeholder="예) HELSINKI_4_1일차",
+        )
+    with col_ddesc:
+        event_day_description = st.text_input(
+            "events.day.description (UI용 일차 이름)",
+            key="dm_event_day_desc",
+            placeholder="예) 데일리 미션 1일차",
+        )
+
+    mission_active_days = int(
+        st.number_input(
+            "mission_active_days",
+            min_value=0,
+            value=0,
+            step=1,
+            key="dm_mission_active_days",
+            help="단일일 이벤트는 0. 장기 이벤트는 일수 입력.",
+        )
+    )
+
     # --- 저장 ---
     st.divider()
+    try:
+        event_key_int_check = int(event_key_str) if 'event_key_str' in dir() else None
+    except (ValueError, TypeError):
+        event_key_int_check = None
+
     save_disabled = (
         parent_key_int is None
         or goal_count_n == 0
         or not daily_filter
         or not parent_description
+        or not event_description
     )
     help_msgs = []
     if parent_key_int is None:
@@ -888,6 +982,8 @@ def render_daily_mission_form(
         help_msgs.append("$filter 를 선택해주세요.")
     if not parent_description:
         help_msgs.append("parent description 을 입력해주세요.")
+    if not event_description:
+        help_msgs.append("events.description 을 입력해주세요.")
     for m in help_msgs:
         st.warning(m)
 
@@ -939,34 +1035,78 @@ def render_daily_mission_form(
 
         try:
             rows_written = append_daily_set(quests_path, parent_row, child_rows)
-            st.success(
-                f"데일리 미션 저장 완료: parent ^key={parent_key_int}, "
-                f"child ^keys={child_keys}, 기입 row={rows_written}"
-            )
-            # 세션 갱신
-            st.session_state.existing_keys.add(parent_key_int)
-            st.session_state.existing_keys.update(child_keys)
-            # child 입력값 초기화 (다음 세트 준비)
-            st.session_state.dm_children = []
-            # R-09 cleanup: 동일 filter 내 다음 세트 준비 → key 재제안 위해 session_state 제거
-            for k in (
-                "dm_parent_desc",
-                "dm_parent_key",
-                "_last_dm_filter",
-                "dm_goal_n",
-            ):
-                if k in st.session_state:
-                    del st.session_state[k]
-            # desc_auto 플래그 모두 정리 (start_timestamp 가 다음에도 같은 값이면 재주입되도록)
-            for k in list(st.session_state.keys()):
-                if k.startswith("_dm_desc_auto_"):
-                    del st.session_state[k]
-            st.cache_data.clear()
-            st.rerun()
         except ValueError as e:
             st.error(f"저장 실패 (파일 저장 전 검증 실패 — 롤백됨): {e}")
+            st.stop()
         except Exception as e:
             st.error(f"저장 실패: {e}")
+            st.stop()
+
+        # quests 저장 성공 → nday_mission_events 저장
+        try:
+            event_key_int = int(event_key_str)
+        except (ValueError, TypeError):
+            event_key_int = None
+
+        nday_save_ok = False
+        if event_key_int is not None and nday_mission_events_path:
+            event_dict_save = {
+                "^key": event_key_int,
+                "description": event_description,
+                "start_timestamp": daily_start,
+                "end_timestamp": daily_end,
+                "mission_active_days": mission_active_days,
+            }
+            event_day_dict_save = {
+                "^key": event_key_int,
+                "day": 1,
+                "description": event_day_description,
+                "quest_ids": "[]{" + ",".join(str(k) for k in child_keys) + "}",
+                "finish_quest_id": parent_key_int,
+            }
+            try:
+                append_nday_mission_event(nday_mission_events_path, event_dict_save, event_day_dict_save)
+                nday_save_ok = True
+            except ValueError as e:
+                st.error(f"nday_mission_events 저장 실패 (quests 는 이미 저장됨 — 수동 복구 필요): {e}")
+            except Exception as e:
+                st.error(f"nday_mission_events 저장 실패 (quests 는 이미 저장됨 — 수동 복구 필요): {e}")
+
+        if nday_save_ok:
+            st.success(
+                f"데일리 미션 저장 완료: parent ^key={parent_key_int}, "
+                f"child ^keys={child_keys}, 기입 row={rows_written} | "
+                f"events ^key={event_key_int} nday 저장 완료"
+            )
+        else:
+            st.success(
+                f"데일리 미션 저장 완료 (quests only): parent ^key={parent_key_int}, "
+                f"child ^keys={child_keys}, 기입 row={rows_written}"
+            )
+
+        # 세션 갱신
+        st.session_state.existing_keys.add(parent_key_int)
+        st.session_state.existing_keys.update(child_keys)
+        # child 입력값 초기화 (다음 세트 준비)
+        st.session_state.dm_children = []
+        # R-09 cleanup
+        for k in (
+            "dm_parent_desc",
+            "dm_parent_key",
+            "_last_dm_filter",
+            "dm_goal_n",
+            "dm_event_key",
+            "dm_event_desc",
+            "dm_event_day_desc",
+            "_last_dm_event_group",
+        ):
+            if k in st.session_state:
+                del st.session_state[k]
+        for k in list(st.session_state.keys()):
+            if k.startswith("_dm_desc_auto_"):
+                del st.session_state[k]
+        st.cache_data.clear()
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1262,7 @@ def main() -> None:
     items_path = cfg.get("items_path", "")
     keywords_path = cfg.get("keywords_path", "")
     dialog_groups_path = cfg.get("dialog_groups_path", "")
+    nday_mission_events_path = cfg.get("nday_mission_events_path", "")
 
     # -- session_state 초기화 --
     # auto_key는 quest_type에 따라 range가 달라지므로, render_tab_add에서 lazy하게 발급.
@@ -1150,7 +1291,8 @@ def main() -> None:
             f"quests:        {quests_path}\n"
             f"items:         {items_path}\n"
             f"keywords:      {keywords_path}\n"
-            f"dialog_groups: {dialog_groups_path}",
+            f"dialog_groups: {dialog_groups_path}\n"
+            f"nday_events:   {nday_mission_events_path}",
             language=None,
         )
 
@@ -1214,6 +1356,15 @@ def main() -> None:
                 st.write(f"dialog_groups.xlsx: {e}")
         else:
             st.write("dialog_groups.xlsx: (file not found or not set)")
+
+        if nday_mission_events_path and Path(nday_mission_events_path).exists():
+            try:
+                nday_events = _load_nday_events(nday_mission_events_path)
+                st.write(f"nday_mission_events.xlsx: ({len(nday_events)} events)")
+            except Exception as e:
+                st.write(f"nday_mission_events.xlsx: {e}")
+        else:
+            st.write("nday_mission_events.xlsx: (file not found or not set)")
 
         st.divider()
 
@@ -1326,6 +1477,11 @@ def main() -> None:
     elif not Path(keywords_path).exists():
         missing.append(f"keywords file not found: {keywords_path}")
 
+    if not nday_mission_events_path:
+        missing.append("nday_mission_events_path is empty in config")
+    elif not Path(nday_mission_events_path).exists():
+        missing.append(f"nday_mission_events file not found: {nday_mission_events_path}")
+
     if missing:
         for msg in missing:
             st.error(msg)
@@ -1348,7 +1504,7 @@ def main() -> None:
     tab_add, tab_plaza = st.tabs(["퀘스트 추가", "광장 배치"])
 
     with tab_add:
-        render_tab_add(quests_path, items_list, kw, dialog_groups)
+        render_tab_add(quests_path, items_list, kw, dialog_groups, nday_mission_events_path=nday_mission_events_path)
 
     with tab_plaza:
         render_tab_plaza(quests_path, kw)

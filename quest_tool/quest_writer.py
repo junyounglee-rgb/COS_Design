@@ -1093,3 +1093,141 @@ def default_parent_desc(start_timestamp: str, existing_parent_count: int = 0) ->
     if day is None:
         day = max(1, existing_parent_count + 1)
     return f"[데일리미션]{day}일차 전체 퀘스트 완료 보상"
+
+
+# ---------------------------------------------------------------------------
+# nday_mission_events.xlsx 함수들
+# ---------------------------------------------------------------------------
+
+def get_existing_event_keys(xlsx_path: str) -> set[int]:
+    """nday_mission_events.xlsx events 시트의 기존 ^key 집합 반환.
+
+    events 시트 구조: Row1=설명, Row2=경로, Row3=헤더(^key, description, ...), Row4~=데이터
+    """
+    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    try:
+        ws = wb["events"]
+        header_map = _build_header_map(ws, path_row=2, header_row=3, base_prefix="")
+        key_col = header_map.get("^key")
+        if key_col is None:
+            return set()
+        existing: set[int] = set()
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            val = row[key_col - 1]
+            if val is not None:
+                try:
+                    existing.add(int(val))
+                except (ValueError, TypeError):
+                    pass
+        return existing
+    finally:
+        wb.close()
+
+
+def suggest_next_event_key(existing_keys: set[int], group_base: int) -> int:
+    """group_base+1 ~ group_base+99 범위에서 사용 안 된 최소 int 반환.
+
+    예: group_base=100, existing_keys={101} → 102 반환
+        group_base=300, existing_keys={} → 301 반환
+
+    Raises:
+        ValueError: 범위 내 공간 없음 (group_base+1 ~ group_base+99 전부 사용 중)
+    """
+    lo = group_base + 1
+    hi = group_base + 99
+    for candidate in range(lo, hi + 1):
+        if candidate not in existing_keys:
+            return candidate
+    raise ValueError(
+        f"이벤트 ^key 범위 {lo}~{hi} 가 꽉 찼습니다. (group_base={group_base})"
+    )
+
+
+def load_nday_mission_events(xlsx_path: str) -> list[dict]:
+    """nday_mission_events.xlsx events 시트 → [{"key": int, "description": str, ...}].
+
+    사이드바 Load Status 표시용. events 시트만 읽음.
+    """
+    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    try:
+        ws = wb["events"]
+        header_map = _build_header_map(ws, path_row=2, header_row=3, base_prefix="")
+        key_col = header_map.get("^key")
+        desc_col = header_map.get("description")
+        if key_col is None:
+            return []
+        events: list[dict] = []
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            val = row[key_col - 1]
+            if val is None:
+                continue
+            try:
+                k = int(val)
+            except (ValueError, TypeError):
+                continue
+            desc = row[desc_col - 1] if desc_col else None
+            events.append({
+                "key": k,
+                "description": str(desc) if desc is not None else "",
+            })
+        return events
+    finally:
+        wb.close()
+
+
+def append_nday_mission_event(
+    xlsx_path: str,
+    event_dict: dict,
+    event_day_dict: dict,
+) -> tuple[int, int]:
+    """events 시트 + events.day 시트에 각 1행씩 추가. 단일 workbook open → _atomic_save.
+
+    Args:
+        xlsx_path: nday_mission_events.xlsx 경로
+        event_dict: {"^key": int, "description": str, "start_timestamp": str,
+                     "end_timestamp": str, "mission_active_days": int}
+        event_day_dict: {"^key": int, "day": 1, "description": str,
+                         "quest_ids": "[]{...}", "finish_quest_id": int}
+
+    Returns:
+        (events_row, events_day_row) — 추가된 행 번호 tuple
+
+    Raises:
+        ValueError: events.^key 중복 시
+    """
+    event_key = _coerce_key_to_int(event_dict.get("^key"), "events ^key")
+    if event_key is None:
+        raise ValueError("events ^key 필수")
+
+    # 중복 체크
+    existing = get_existing_event_keys(xlsx_path)
+    if event_key in existing:
+        raise ValueError(f"events ^key {event_key!r} 는 이미 존재합니다.")
+
+    wb = load_workbook(xlsx_path, data_only=True)
+    try:
+        # events 시트 기입
+        ws_ev = wb["events"]
+        hm_ev = _build_header_map(ws_ev, path_row=2, header_row=3, base_prefix="")
+        ev_row = ws_ev.max_row + 1
+        for col_name, value in event_dict.items():
+            col_idx = hm_ev.get(col_name)
+            if col_idx is None or value is None or value == "":
+                continue
+            ws_ev.cell(row=ev_row, column=col_idx, value=value)
+
+        # events.day 시트 기입
+        ws_day = wb["events.day"]
+        hm_day = _build_header_map(ws_day, path_row=2, header_row=3, base_prefix="")
+        day_row = ws_day.max_row + 1
+        for col_name, value in event_day_dict.items():
+            col_idx = hm_day.get(col_name)
+            if col_idx is None or value is None or value == "":
+                continue
+            ws_day.cell(row=day_row, column=col_idx, value=value)
+
+        _atomic_save(wb, xlsx_path)
+    finally:
+        wb.close()
+
+    return ev_row, day_row

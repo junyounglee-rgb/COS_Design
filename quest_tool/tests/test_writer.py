@@ -18,10 +18,12 @@ from quest_writer import (
     _HARDCODED_GOAL_TYPES,
     allocate_child_keys,
     append_daily_set,
+    append_nday_mission_event,
     append_quest_row,
     default_parent_desc,
     extract_day_from_keyword,
     generate_unique_key,
+    get_existing_event_keys,
     get_existing_keys,
     get_header_map,
     load_dialog_groups,
@@ -32,6 +34,7 @@ from quest_writer import (
     load_quest_templates,
     parse_quest_texts,
     save_goal_types_yaml,
+    suggest_next_event_key,
     suggest_next_parent_key,
 )
 
@@ -1205,3 +1208,100 @@ class TestDailyMissionHelpers:
         """fallback 도 최소 1일차."""
         assert default_parent_desc("", 0) == "[데일리미션]1일차 전체 퀘스트 완료 보상"
         assert default_parent_desc("", -5) == "[데일리미션]1일차 전체 퀘스트 완료 보상"
+
+
+class TestNdayMissionEvents:
+    """nday_mission_events.xlsx 관련 함수 테스트."""
+
+    FIXTURE_PATH = str(
+        Path(__file__).resolve().parent / "fixtures" / "nday_mission_events_test.xlsx"
+    )
+
+    def test_get_existing_event_keys(self):
+        """픽스처에서 {101, 201} 반환 확인."""
+        keys = get_existing_event_keys(self.FIXTURE_PATH)
+        assert keys == {101, 201}
+
+    def test_suggest_next_event_key_within_group(self):
+        """group_base=100, 101 사용 중 → 102 제안."""
+        existing = {101, 201}
+        result = suggest_next_event_key(existing, group_base=100)
+        assert result == 102
+
+    def test_suggest_next_event_key_new_group(self):
+        """group_base=300, 미사용 → 301 제안."""
+        existing = {101, 201}
+        result = suggest_next_event_key(existing, group_base=300)
+        assert result == 301
+
+    def test_append_nday_mission_event_writes_both_sheets(self, tmp_path):
+        """events + events.day 각 1행 증가 확인."""
+        import shutil
+        fixture_copy = str(tmp_path / "nday_test.xlsx")
+        shutil.copy(self.FIXTURE_PATH, fixture_copy)
+
+        event_dict = {
+            "^key": 102,
+            "description": "테스트 이벤트",
+            "start_timestamp": "$$TEST_NDAY2",
+            "end_timestamp": "$$TEST_NDAY2_END",
+            "mission_active_days": 0,
+        }
+        event_day_dict = {
+            "^key": 102,
+            "day": 1,
+            "description": "테스트 일차",
+            "quest_ids": "[]{40001,40002,40003}",
+            "finish_quest_id": 40001,
+        }
+
+        from openpyxl import load_workbook
+        wb_before = load_workbook(fixture_copy, data_only=True)
+        ev_rows_before = wb_before["events"].max_row
+        day_rows_before = wb_before["events.day"].max_row
+        wb_before.close()
+
+        ev_row, day_row = append_nday_mission_event(fixture_copy, event_dict, event_day_dict)
+
+        wb_after = load_workbook(fixture_copy, data_only=True)
+        ev_rows_after = wb_after["events"].max_row
+        day_rows_after = wb_after["events.day"].max_row
+        wb_after.close()
+
+        assert ev_rows_after == ev_rows_before + 1
+        assert day_rows_after == day_rows_before + 1
+        assert ev_row == ev_rows_before + 1
+        assert day_row == day_rows_before + 1
+
+        # 저장 내용 검증
+        wb_verify = load_workbook(fixture_copy, data_only=True)
+        ws_ev = wb_verify["events"]
+        assert ws_ev.cell(row=ev_row, column=1).value == 102
+        ws_day = wb_verify["events.day"]
+        assert ws_day.cell(row=day_row, column=1).value == 102
+        assert ws_day.cell(row=day_row, column=2).value == 1
+        wb_verify.close()
+
+    def test_append_nday_mission_event_duplicate_key_raises(self, tmp_path):
+        """중복 ^key=101 → ValueError."""
+        import shutil
+        fixture_copy = str(tmp_path / "nday_dup.xlsx")
+        shutil.copy(self.FIXTURE_PATH, fixture_copy)
+
+        event_dict = {
+            "^key": 101,  # 이미 존재
+            "description": "중복 이벤트",
+            "start_timestamp": "$$TEST",
+            "end_timestamp": "$$TEST_END",
+            "mission_active_days": 0,
+        }
+        event_day_dict = {
+            "^key": 101,
+            "day": 1,
+            "description": "중복 일차",
+            "quest_ids": "[]{40001}",
+            "finish_quest_id": 40001,
+        }
+
+        with pytest.raises(ValueError, match="이미 존재"):
+            append_nday_mission_event(fixture_copy, event_dict, event_day_dict)

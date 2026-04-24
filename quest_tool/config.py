@@ -8,6 +8,7 @@ DEFAULT_CONFIG = {
     "items_path": "",
     "keywords_path": "",
     "dialog_groups_path": "",
+    "nday_mission_events_path": "",   # 추가
 }
 
 
