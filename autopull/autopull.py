@@ -1,7 +1,7 @@
 import subprocess
 import threading
 import queue
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
@@ -243,6 +243,8 @@ class Puller:
         self.branches = ordered
         self.log_queue = log_queue
         self.results: list[BranchResult] = []
+        # run() phase 1에서 세팅됨; _process_branch()가 참조.
+        self._valid_siblings_cache: list[str] = []
 
     def log(self, msg: str) -> None:
         self.log_queue.put(msg)
@@ -265,6 +267,23 @@ class Puller:
         orig = current_branch(self.repo_root)
         self.log(f"현재 브랜치: {orig}\n")
 
+        # Phase 1: 모든 저장소 fetch 병렬 (1회만). 이후 repo×branch 루프에서는
+        # 네트워크 호출 없이 로컬 ref 조회만 수행하여 중복 fetch 제거.
+        valid_siblings: list[str] = []
+        for s in self.sibling_repos:
+            if Path(s).exists():
+                valid_siblings.append(s)
+            else:
+                # sibling 경로 오타/삭제를 사용자가 인지할 수 있도록 경고 로그 (qa-tool EC-2 권고)
+                self.log(f"  [경고] sibling 경로 없음 - 건너뜀: {s}")
+        self._valid_siblings_cache = valid_siblings
+        all_repos = [self.repo_root] + valid_siblings
+        self.log(f"원격 정보 가져오는 중 (병렬, {len(all_repos)}개 저장소)...")
+        with ThreadPoolExecutor(max_workers=len(all_repos)) as ex:
+            list(ex.map(lambda r: _fetch_repo(r, self.log_queue), all_repos))
+        self.log("")
+
+        # Phase 2: 브랜치별 처리 (브랜치 내부의 repo들은 병렬 처리)
         for branch in self.branches:
             self.log(f"{DIVIDER_CHAR * 2} {branch} {DIVIDER_CHAR * (40 - len(branch))}")
             result = self._process_branch(branch)
@@ -278,45 +297,96 @@ class Puller:
 
         self.log("\n\u2705 모든 작업 완료!")
 
+    def _pull_repo_branch(
+        self, repo_path: str, branch: str
+    ) -> tuple[str, str, Optional[str], str]:
+        """한 저장소에 대해 한 브랜치를 checkout + (필요시) merge.
+
+        사전 조건: `run()` phase 1에서 `git fetch --all --prune` 완료.
+        따라서 이 함수 내부는 로컬 ref 조회만 하며 네트워크 호출 없음.
+
+        최적화 포인트:
+        1. behind=0이면 checkout/merge 모두 스킵 → 원래 브랜치 복원 시 한 번만 checkout
+        2. behind>0일 때도 `git pull origin branch`가 아닌 `git merge --ff-only origin/branch`
+           사용 (중복 fetch 제거, 네트워크 호출 없음)
+
+        반환: (name, kind, error_detail, log_line)
+        - kind: "skip" | "uptodate" | "merged" | "checkout_fail" | "merge_fail"
+        """
+        name = Path(repo_path).name
+
+        behind = _check_repo_behind(repo_path, branch)
+        if behind is None:
+            # 원격에 이 브랜치 없음 → skip (메인이면 run()쪽에서 실패 처리)
+            return (name, "skip", None, f"  [{name}] 브랜치 없음 - 건너뜀")
+
+        if behind == 0:
+            # 이미 최신: checkout조차 불필요 (orig 복원은 run() 끝에서 한 번만)
+            return (name, "uptodate", None, f"  [{name}] ✓ 이미 최신")
+
+        # behind > 0: checkout + merge
+        r = run_git(["checkout", branch], cwd=repo_path)
+        if r.returncode != 0:
+            err = r.stderr.strip()
+            return (
+                name,
+                "checkout_fail",
+                err,
+                f"  [{name}] checkout 실패: {err[:ERR_MSG_SLICE_MID]}",
+            )
+
+        # --ff-only: 로컬 divergence 감지 시 merge commit 없이 실패하여 사용자 보호.
+        # 원래 `git pull origin branch`는 config에 따라 rebase/merge → 의도치 않은 merge commit 위험.
+        r = run_git(["merge", "--ff-only", f"origin/{branch}"], cwd=repo_path)
+        if r.returncode != 0:
+            err = r.stderr.strip()
+            return (
+                name,
+                "merge_fail",
+                err,
+                f"  [{name}] merge 실패 (로컬 divergence?): {err[:ERR_MSG_SLICE_MID]}",
+            )
+
+        return (name, "merged", None, f"  [{name}] ✓ {behind}커밋 merge 완료")
+
     def _process_branch(self, branch: str) -> BranchResult:
         result = BranchResult(branch=branch)
 
-        # ── Sibling repos ──────────────────────────────────────────────────────────────
-        for sibling_path in self.sibling_repos:
-            if not Path(sibling_path).exists():
-                self.log(f"  [건너뜀] 경로 없음: {sibling_path}")
-                continue
-            name = Path(sibling_path).name
-            r = run_git(["checkout", branch], cwd=sibling_path)
-            if r.returncode != 0:
-                self.log(f"  [{name}] checkout 실패 (브랜치 없음?) - 건너뜀")
-                continue
-            r = run_git(["pull", "origin", branch], cwd=sibling_path)
-            if r.returncode != 0:
-                self.log(f"  [{name}] pull 실패: {r.stderr.strip()[:ERR_MSG_SLICE_MID]}")
-            else:
-                out = r.stdout.strip() or "Already up to date."
-                self.log(f"  [{name}] {out}")
+        # sibling 먼저, main 마지막 순서로 로그 출력 (원래 동작 유지)
+        valid_siblings = self._valid_siblings_cache
+        ordered_targets = valid_siblings + [self.repo_root]
 
-        # ── Main repo ──────────────────────────────────────────────────────────────
-        repo_name = Path(self.repo_root).name
-        r = run_git(["checkout", branch], cwd=self.repo_root)
-        if r.returncode != 0:
+        # 각 저장소의 checkout+merge는 서로 독립적이므로 병렬 실행 (3 repo → ~3× 단축)
+        outcomes: dict[str, tuple[str, str, Optional[str], str]] = {}
+        with ThreadPoolExecutor(max_workers=len(ordered_targets)) as ex:
+            future_to_path = {
+                ex.submit(self._pull_repo_branch, path, branch): path
+                for path in ordered_targets
+            }
+            for fut in as_completed(future_to_path):
+                path = future_to_path[fut]
+                outcomes[path] = fut.result()
+
+        # 로그는 고정 순서(sibling → main)로 출력 (병렬 완료 순서 비결정성 제거)
+        for path in ordered_targets:
+            _, _, _, log_line = outcomes[path]
+            self.log(log_line)
+
+        # 메인 저장소 결과로 BranchResult 확정
+        main_name, kind, err, _ = outcomes[self.repo_root]
+        if kind == "checkout_fail":
             result.error_stage = "git checkout"
-            result.error_detail = r.stderr.strip()
-            self.log(f"  [{repo_name}] checkout 실패: {result.error_detail[:ERR_MSG_SLICE_LONG]}")
-            return result
-
-        r = run_git(["pull", "origin", branch], cwd=self.repo_root)
-        if r.returncode != 0:
-            result.error_stage = "git pull"
-            result.error_detail = r.stderr.strip()
-            self.log(f"  [{repo_name}] pull 실패: {result.error_detail[:ERR_MSG_SLICE_LONG]}")
-            return result
-
-        out = r.stdout.strip() or "Already up to date."
-        self.log(f"  [{repo_name}] {out}")
-        result.success = True
+            result.error_detail = err or ""
+        elif kind == "merge_fail":
+            # qa-tool TC-B5 권고: 기존 명칭("git pull")을 유지하면서 내부 방식(ff-only) 명시
+            result.error_stage = "git pull (ff-only)"
+            result.error_detail = err or ""
+        elif kind == "skip":
+            # qa-tool TC-B3 권고: 기존 "git checkout" 계열로 명칭 유지 (원격 브랜치 없음은 checkout 실패의 일종)
+            result.error_stage = "git checkout (원격 브랜치 없음)"
+            result.error_detail = f"메인 저장소({main_name})에 {branch} 브랜치 없음"
+        else:  # "uptodate" | "merged"
+            result.success = True
         return result
 
 
