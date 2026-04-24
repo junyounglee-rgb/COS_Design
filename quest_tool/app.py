@@ -1,4 +1,5 @@
 """Quest Tool - Streamlit app (STEP 3: 단건 추가 UI)."""
+import re
 import sys
 from pathlib import Path
 
@@ -546,7 +547,7 @@ def render_tab_add(
 # ---------------------------------------------------------------------------
 
 
-def _default_daily_child() -> dict:
+def _default_child() -> dict:
     """개별 child 초기값."""
     return {
         "description": "",
@@ -559,14 +560,36 @@ def _default_daily_child() -> dict:
     }
 
 
-def _resize_daily_children(current: list[dict], target_n: int) -> list[dict]:
+def _default_day() -> dict:
+    """day(일자) 초기값."""
+    return {
+        "parent_description": "",
+        "event_description": "",
+        "event_day_description": "",
+        "children": [],
+    }
+
+
+def _resize_children(current: list[dict], target_n: int) -> list[dict]:
     """child 리스트 길이를 target_n 으로 맞춤. 기존 값 보존, 부족 시 append, 초과 시 truncate."""
     cur_n = len(current)
     if cur_n == target_n:
         return current
     if cur_n < target_n:
-        return current + [_default_daily_child() for _ in range(target_n - cur_n)]
+        return current + [_default_child() for _ in range(target_n - cur_n)]
     return current[:target_n]
+
+
+def _resize_days(current: list[dict], target_n: int, n_children: int) -> list[dict]:
+    """dm_days 리스트 길이를 target_n, 각 day 의 children 길이를 n_children 으로 맞춤."""
+    cur_n = len(current)
+    if cur_n < target_n:
+        current = current + [_default_day() for _ in range(target_n - cur_n)]
+    elif cur_n > target_n:
+        current = current[:target_n]
+    for d in current:
+        d["children"] = _resize_children(d.get("children", []), n_children)
+    return current
 
 
 def _find_items_path_from_config() -> str:
@@ -585,28 +608,18 @@ def render_daily_mission_form(
     dialog_groups: list[dict] | None = None,
     nday_mission_events_path: str = "",
 ) -> None:
-    """데일리 미션 (통합): parent + child N 을 한 번에 저장.
+    """데일리 미션 N일치 통합 폼.
 
-    parent (자동 강제):
-        category=GENERAL, reset_type=DAILY, count_type=HIGHEST,
-        goal_type %key=reward_quest:ref_quest_ids,
-        goal_type %param1=[]{c1,c2,...} (child ^key 자동 조립),
-        goal_count=N
-
-    child (자동 상속):
-        $filter / start_timestamp / end_timestamp = parent 상속
-        category=GENERAL, reset_type=DAILY, count_type=SUM
-
-    child (수동):
-        description, goal_type/%key, %param1, goal_count, reward(category→id) + qty
+    1회 저장 = N_DAYS × (parent 1건 + child N_CHILDREN건) + N_DAYS × (events + events.day)
+    이벤트 그룹은 자동 할당 (기존 max_group + 100).
+    parent 복사 기능으로 "N일차" 문자열을 해당 일차로 자동 치환.
     """
     dialog_groups = dialog_groups or []
     st.divider()
-    st.subheader("데일리 미션 (parent + child 통합)")
+    st.subheader("데일리 미션 (N일치 parent+child 통합)")
     st.caption(
-        "parent 1건 + child N건 을 한 번에 기입합니다. "
-        "parent `goal_type/%param1` 는 child ^key 들로 자동 조립됩니다. "
-        "count_type / reset_type / goal_type %key 는 강제 규칙이며 편집 불가."
+        "N_DAYS × (parent 1 + child N_CHILDREN) + N_DAYS × (events + events.day) 을 한 번에 저장. "
+        "count_type / reset_type / goal_type %key 는 강제. 이벤트 그룹은 100단위 자동 할당."
     )
 
     build_kw = kw.get("build", {})
@@ -618,7 +631,7 @@ def render_daily_mission_form(
         item_categories = _load_item_categories(items_path) if items_path else []
     except Exception:
         item_categories = []
-    category_keys = [c["key"] for c in item_categories]  # e.g. ITEM_CATEGORY_GENERAL
+    category_keys = [c["key"] for c in item_categories]
 
     # --- 공통 필드 ---
     col1, col2 = st.columns(2)
@@ -642,253 +655,32 @@ def render_daily_mission_form(
             key="dm_ct_disp",
         )
 
-    # R-09: filter 변경 감지 → parent_key session_state 초기화 → 새 key 재제안
-    last_filter = st.session_state.get("_last_dm_filter")
-    if last_filter != daily_filter:
-        st.session_state["_last_dm_filter"] = daily_filter
-        if "dm_parent_key" in st.session_state:
-            del st.session_state["dm_parent_key"]
-        if "dm_parent_desc" in st.session_state:
-            del st.session_state["dm_parent_desc"]
-
     st.divider()
 
-    # --- parent 설정 ---
-    st.subheader("parent 설정")
-
-    # parent key 제안
-    existing_by_filter: dict[int, str] | None = None
-    try:
-        if quests_path and Path(quests_path).exists():
-            existing_by_filter = get_existing_keys_by_filter(quests_path)
-    except Exception:
-        existing_by_filter = None
-
-    suggested_parent = suggest_next_parent_key(
-        st.session_state.existing_keys,
-        filter_id=daily_filter,
-        reset_type="QUEST_RESET_TYPE_DAILY",
-        category="QUEST_CATEGORY_GENERAL",
-        existing_by_filter=existing_by_filter,
-    )
-
-    col_pkey, col_pn = st.columns([1, 1])
-    with col_pkey:
-        parent_key_str = st.text_input(
-            "^key (parent, 수정 가능)",
-            value=str(suggested_parent),
-            key="dm_parent_key",
-        )
-    with col_pn:
-        # goal_count N (child 개수)
-        goal_count_n = st.number_input(
-            "goal_count (= child 수 N)",
+    # --- N_DAYS / N_CHILDREN ---
+    col_nd, col_nc = st.columns(2)
+    with col_nd:
+        n_days = int(st.number_input(
+            "미션 일수 (N_DAYS)",
+            min_value=1,
+            max_value=30,
+            value=int(st.session_state.get("dm_n_days", 1)),
+            step=1,
+            key="dm_n_days",
+            help="1=단일일, 5=5일치 parent 5개, 14=HELSINKI_3 같은 장기",
+        ))
+    with col_nc:
+        n_children = int(st.number_input(
+            "하루 child 수 (N_CHILDREN)",
             min_value=1,
             max_value=20,
-            value=int(st.session_state.get("dm_goal_n", 5)),
+            value=int(st.session_state.get("dm_n_children", 5)),
             step=1,
-            key="dm_goal_n",
-            help="parent goal_count 와 child 개수로 동시에 사용. child 입력 폼이 자동 리사이즈됩니다.",
-        )
+            key="dm_n_children",
+            help="모든 day 동일 적용. day별 가변은 미지원.",
+        ))
 
-    # parent description 자동 프리필 (start_timestamp 에서 NDAY 파싱, 실패 시 existing+1)
-    existing_daily_parents = 0
-    if existing_by_filter:
-        for kk, rt in existing_by_filter.items():
-            if rt == "QUEST_RESET_TYPE_DAILY" and 40000 <= kk < 50000:
-                existing_daily_parents += 1
-    default_desc = default_parent_desc(daily_start or "", existing_daily_parents)
-
-    # description 수정 여부 플래그: 사용자가 수동 수정했으면 자동 갱신 중단
-    desc_auto_key = f"_dm_desc_auto_{daily_start}"
-    if desc_auto_key not in st.session_state:
-        # 이 start_timestamp 기준 최초 진입 시 자동값 주입
-        st.session_state["dm_parent_desc"] = default_desc
-        st.session_state[desc_auto_key] = True
-
-    parent_description = st.text_input(
-        "parent description (자동 프리필, 수정 가능)",
-        key="dm_parent_desc",
-        placeholder="예) [데일리미션]1일차 전체 퀘스트 완료 보상",
-    )
-
-    st.divider()
-
-    # --- child 리스트 ---
-    st.subheader(f"child 리스트 (N={goal_count_n})")
-
-    # child 리스트 리사이즈 (N 반영)
-    if "dm_children" not in st.session_state:
-        st.session_state.dm_children = _resize_daily_children([], goal_count_n)
-    st.session_state.dm_children = _resize_daily_children(st.session_state.dm_children, goal_count_n)
-
-    # child ^key 자동 발급 (parent_key_int 기준)
-    try:
-        parent_key_int = int(parent_key_str)
-    except ValueError:
-        parent_key_int = None
-
-    child_keys: list[int] = []
-    if parent_key_int is not None and goal_count_n > 0:
-        child_keys = allocate_child_keys(st.session_state.existing_keys, parent_key_int, int(goal_count_n))
-
-    goal_opts = [f"{g['key']} — {g['label']}" for g in GOAL_TYPES]
-    goal_key_index = {g["key"]: i for i, g in enumerate(GOAL_TYPES)}
-
-    # 각 child 행을 expander 로 렌더 (reward 2단계 selectbox 를 위해 데이터에디터 회피)
-    for i in range(int(goal_count_n)):
-        ck = child_keys[i] if i < len(child_keys) else "?"
-        child = st.session_state.dm_children[i]
-        with st.expander(f"child {i + 1}   ^key={ck}", expanded=True):
-            c1, c2 = st.columns([2, 1])
-            with c1:
-                child["description"] = st.text_input(
-                    "description",
-                    value=child.get("description", ""),
-                    key=f"dm_c{i}_desc",
-                    placeholder="예) 1일차(승리 4회)",
-                )
-            with c2:
-                child["goal_count"] = int(
-                    st.number_input(
-                        "goal_count",
-                        min_value=1,
-                        value=int(child.get("goal_count", 1)),
-                        step=1,
-                        key=f"dm_c{i}_gcnt",
-                    )
-                )
-
-            # goal_type %key (+ 동적 %param1)
-            cur_gkey = child.get("goal_type_key", "play:need_win")
-            default_idx = goal_key_index.get(cur_gkey, 0)
-            gsel = st.selectbox(
-                "goal_type/%key",
-                goal_opts,
-                index=default_idx,
-                key=f"dm_c{i}_gkey_sel",
-            )
-            gdef = GOAL_TYPES[goal_opts.index(gsel)]
-            child["goal_type_key"] = gdef["key"]
-            # param1 동적 위젯
-            param_vals = render_param_fields(
-                gdef.get("params", []) or [],
-                f"dm_c{i}_gparam",
-                items_list,
-                dialog_groups,
-            )
-            # goal_type 는 단일 param 이 대부분 — param1 만 저장
-            child["goal_type_param1"] = param_vals[0] if param_vals else None
-
-            # reward 2단계: category → 필터된 items 선택
-            rcat_col, rid_col, rqty_col = st.columns([1, 2, 1])
-            with rcat_col:
-                cat_options = ["(선택)"] + category_keys
-                cur_cat = child.get("reward_category", "")
-                cat_idx = cat_options.index(cur_cat) if cur_cat in cat_options else 0
-                sel_cat = st.selectbox(
-                    "reward_category",
-                    cat_options,
-                    index=cat_idx,
-                    key=f"dm_c{i}_rcat",
-                )
-                child["reward_category"] = "" if sel_cat == "(선택)" else sel_cat
-
-            with rid_col:
-                # 선택 category 에 맞는 items 만 필터
-                if child["reward_category"]:
-                    filtered = [it for it in items_list if it.get("category") == child["reward_category"]]
-                else:
-                    filtered = list(items_list)
-                if filtered:
-                    fmt = lambda it: f"{it['id']} | {it['name']} | {it.get('filter','')}"
-                    id_opts = ["(선택 안함)"] + [fmt(it) for it in filtered]
-                    # 기존 reward_id 를 옵션에서 매칭
-                    cur_rid = int(child.get("reward_id") or 0)
-                    cur_label = "(선택 안함)"
-                    for it in filtered:
-                        if it["id"] == cur_rid:
-                            cur_label = fmt(it)
-                            break
-                    try:
-                        cur_idx = id_opts.index(cur_label)
-                    except ValueError:
-                        cur_idx = 0
-                    sel_id = st.selectbox(
-                        "reward_id",
-                        id_opts,
-                        index=cur_idx,
-                        key=f"dm_c{i}_rid",
-                    )
-                    if sel_id == "(선택 안함)":
-                        child["reward_id"] = 0
-                    else:
-                        idx_in_filtered = id_opts.index(sel_id) - 1
-                        child["reward_id"] = int(filtered[idx_in_filtered]["id"])
-                else:
-                    st.write("(해당 category 에 items 없음)")
-                    child["reward_id"] = 0
-
-            with rqty_col:
-                child["reward_qty"] = int(
-                    st.number_input(
-                        "reward_qty",
-                        min_value=1,
-                        value=int(child.get("reward_qty", 1) or 1),
-                        step=1,
-                        key=f"dm_c{i}_rqty",
-                    )
-                )
-
-    # --- 미리보기 ---
-    st.divider()
-    st.subheader("미리보기")
-    st.caption(
-        f"parent ^key={parent_key_int}, child N={goal_count_n}, "
-        f"parent goal %param1 = []{{ {','.join(str(k) for k in child_keys)} }}"
-    )
-
-    preview_rows = []
-    if parent_key_int is not None:
-        preview_rows.append(
-            {
-                "^key": parent_key_int,
-                "role": "parent",
-                "description": parent_description,
-                "goal_type/type/%key": "reward_quest:ref_quest_ids",
-                "goal_type/type/%param1": "[]{" + ",".join(str(k) for k in child_keys) + "}",
-                "count_type": "QUEST_COUNT_TYPE_HIGHEST",
-                "goal_count": int(goal_count_n),
-            }
-        )
-    for i in range(int(goal_count_n)):
-        child = st.session_state.dm_children[i]
-        ck = child_keys[i] if i < len(child_keys) else None
-        preview_rows.append(
-            {
-                "^key": ck,
-                "role": f"child {i + 1}",
-                "description": child.get("description", ""),
-                "goal_type/type/%key": child.get("goal_type_key", ""),
-                "goal_type/type/%param1": child.get("goal_type_param1", ""),
-                "count_type": "QUEST_COUNT_TYPE_SUM",
-                "goal_count": child.get("goal_count", 1),
-                "rewards/0/id": child.get("reward_id", 0),
-                "rewards/0/qty": child.get("reward_qty", 1),
-            }
-        )
-    if preview_rows:
-        st.dataframe(
-            pd.DataFrame(preview_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # --- nday_mission_events 설정 ---
-    st.divider()
-    st.subheader("nday_mission_events 설정")
-
-    # 기존 이벤트 key 로드
+    # --- 이벤트 그룹 자동 계산 ---
     existing_event_keys: set[int] = set()
     if nday_mission_events_path and Path(nday_mission_events_path).exists():
         try:
@@ -896,217 +688,455 @@ def render_daily_mission_form(
         except Exception:
             existing_event_keys = set()
 
-    # 그룹 목록 계산: 기존 사용 그룹(100단위) + 다음 신규 그룹
-    used_groups: set[int] = set()
-    for ek in existing_event_keys:
-        used_groups.add((ek // 100) * 100)
-    # 신규 그룹 = 기존 최대 그룹 + 100 (없으면 100부터 시작)
-    next_new_group = (max(used_groups) + 100) if used_groups else 100
-    all_groups = sorted(used_groups | {next_new_group})
-    group_labels = [str(g) for g in all_groups]
-
-    col_grp, col_ekey = st.columns([1, 1])
-    with col_grp:
-        sel_group_label = st.selectbox(
-            "이벤트 그룹 (100단위)",
-            group_labels,
-            index=len(group_labels) - 1,  # 기본: 가장 큰 그룹(신규)
-            key="dm_event_group",
-            help="기존 사용 그룹 + 다음 신규 100단위 그룹",
-        )
-    sel_group_base = int(sel_group_label)
-
-    # 그룹 변경 감지 → dm_event_key 재계산
-    last_group = st.session_state.get("_last_dm_event_group")
-    if last_group != sel_group_base:
-        st.session_state["_last_dm_event_group"] = sel_group_base
-        if "dm_event_key" in st.session_state:
-            del st.session_state["dm_event_key"]
-
-    # ^key 자동 제안
-    try:
-        suggested_ekey = suggest_next_event_key(existing_event_keys, sel_group_base)
-    except ValueError:
-        suggested_ekey = sel_group_base + 1  # 폴백
-
-    with col_ekey:
-        event_key_str = st.text_input(
-            "events ^key (수정 가능)",
-            value=str(suggested_ekey),
-            key="dm_event_key",
-        )
-
-    col_edesc, col_ddesc = st.columns(2)
-    with col_edesc:
-        event_description = st.text_input(
-            "events.description (UI용 이벤트 이름)",
-            key="dm_event_desc",
-            placeholder="예) HELSINKI_4_1일차",
-        )
-    with col_ddesc:
-        event_day_description = st.text_input(
-            "events.day.description (UI용 일차 이름)",
-            key="dm_event_day_desc",
-            placeholder="예) 데일리 미션 1일차",
-        )
-
-    mission_active_days = int(
-        st.number_input(
-            "mission_active_days",
-            min_value=0,
-            value=0,
-            step=1,
-            key="dm_mission_active_days",
-            help="단일일 이벤트는 0. 장기 이벤트는 일수 입력.",
-        )
+    used_groups = {(ek // 100) * 100 for ek in existing_event_keys if ek >= 100}
+    group_base = (max(used_groups) + 100) if used_groups else 100
+    st.text_input(
+        "이벤트 그룹 (자동, 100단위)",
+        value=str(group_base),
+        disabled=True,
+        key="dm_group_disp",
+        help=f"기존 사용 그룹: {sorted(used_groups) if used_groups else '(없음)'} → 신규: {group_base}",
     )
+
+    # --- 첫 parent ^key 자동 제안 ---
+    existing_by_filter: dict[int, str] | None = None
+    try:
+        if quests_path and Path(quests_path).exists():
+            existing_by_filter = get_existing_keys_by_filter(quests_path)
+    except Exception:
+        existing_by_filter = None
+
+    suggested_first_parent = suggest_next_parent_key(
+        st.session_state.existing_keys,
+        filter_id=daily_filter,
+        reset_type="QUEST_RESET_TYPE_DAILY",
+        category="QUEST_CATEGORY_GENERAL",
+        existing_by_filter=existing_by_filter,
+    )
+
+    first_parent_str = st.text_input(
+        "^key (첫 parent, 수정 가능; 이후 +10 씩 자동)",
+        value=str(suggested_first_parent),
+        key="dm_first_parent_key",
+    )
+    try:
+        first_parent_int = int(first_parent_str)
+    except ValueError:
+        first_parent_int = None
+
+    # --- parent keys / event keys 행렬 ---
+    parent_keys: list[int] = (
+        [first_parent_int + 10 * i for i in range(n_days)]
+        if first_parent_int is not None else []
+    )
+    event_keys: list[int] = [group_base + 1 + i for i in range(n_days)]
+
+    # --- child keys 행렬 (중첩 방지) ---
+    child_keys_matrix: list[list[int]] = []
+    if parent_keys:
+        existing_accum = set(st.session_state.existing_keys)
+        for d in range(n_days):
+            existing_accum.add(parent_keys[d])
+            cks = allocate_child_keys(existing_accum, parent_keys[d], n_children)
+            existing_accum.update(cks)
+            child_keys_matrix.append(cks)
+
+    # --- dm_days 세션 상태 ---
+    if "dm_days" not in st.session_state:
+        st.session_state.dm_days = []
+    st.session_state.dm_days = _resize_days(
+        st.session_state.dm_days, n_days, n_children
+    )
+
+    # --- mission_active_days (전역) ---
+    mission_active_days = int(st.number_input(
+        "mission_active_days (events 전체 공통)",
+        min_value=0,
+        value=int(st.session_state.get("dm_mad", 0)),
+        step=1,
+        key="dm_mad",
+        help="단일일 이벤트=0, 장기 이벤트=일수",
+    ))
+
+    st.divider()
+
+    goal_opts = [f"{g['key']} — {g['label']}" for g in GOAL_TYPES]
+    goal_key_index = {g["key"]: i for i, g in enumerate(GOAL_TYPES)}
+
+    # --- day 별 expander ---
+    for d in range(n_days):
+        day = st.session_state.dm_days[d]
+        pk = parent_keys[d] if d < len(parent_keys) else "?"
+        ek = event_keys[d]
+        cks = child_keys_matrix[d] if d < len(child_keys_matrix) else []
+
+        with st.expander(
+            f"{d + 1}일차   parent ^key={pk}  /  event ^key={ek}",
+            expanded=(d == 0),
+        ):
+            # --- 복사 기능 (N_DAYS > 1 일 때만) ---
+            if n_days > 1:
+                other_days = [i for i in range(n_days) if i != d]
+                src_opts = ["(선택 안함)"] + [f"{i + 1}일차" for i in other_days]
+                col_src, col_btn = st.columns([2, 1])
+                with col_src:
+                    src_sel = st.selectbox(
+                        "복사할 날짜 (source)",
+                        src_opts,
+                        index=0,
+                        key=f"dm_d{d}_copysrc",
+                    )
+                with col_btn:
+                    st.write("")  # 정렬용 공백
+                    if st.button(
+                        "복사 적용",
+                        key=f"dm_d{d}_copybtn",
+                        disabled=(src_sel == "(선택 안함)"),
+                    ):
+                        real_src = other_days[src_opts.index(src_sel) - 1]
+                        src_day = st.session_state.dm_days[real_src]
+
+                        def _sub(s: str) -> str:
+                            return re.sub(r"\d+일차", f"{d + 1}일차", s or "")
+
+                        day["parent_description"] = _sub(src_day["parent_description"])
+                        day["event_description"] = _sub(src_day["event_description"])
+                        day["event_day_description"] = _sub(src_day["event_day_description"])
+                        day["children"] = [
+                            {**c, "description": _sub(c.get("description", ""))}
+                            for c in src_day["children"]
+                        ]
+                        # text_input 키 값도 초기화 필요 (session_state 직접 삭제)
+                        for i in range(n_children):
+                            for suffix in ("desc", "gcnt", "gkey_sel", "rcat", "rid", "rqty"):
+                                k = f"dm_d{d}_c{i}_{suffix}"
+                                if k in st.session_state:
+                                    del st.session_state[k]
+                        for suffix in ("pdesc", "edesc", "ddesc"):
+                            k = f"dm_d{d}_{suffix}"
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.success(f"{real_src + 1}일차 → {d + 1}일차 복사 완료")
+                        st.rerun()
+                st.divider()
+
+            # --- parent description ---
+            day["parent_description"] = st.text_input(
+                f"parent description ({d + 1}일차)",
+                value=day.get("parent_description", ""),
+                key=f"dm_d{d}_pdesc",
+                placeholder=f"예) [데일리미션]{d + 1}일차 전체 퀘스트 완료 보상",
+            )
+
+            # --- event descriptions ---
+            col_ed, col_dd = st.columns(2)
+            with col_ed:
+                day["event_description"] = st.text_input(
+                    "events.description (UI용)",
+                    value=day.get("event_description", ""),
+                    key=f"dm_d{d}_edesc",
+                    placeholder="예) 가정의 달! 스페셜 미션",
+                )
+            with col_dd:
+                day["event_day_description"] = st.text_input(
+                    "events.day.description (UI용 일차명)",
+                    value=day.get("event_day_description", ""),
+                    key=f"dm_d{d}_ddesc",
+                    placeholder=f"예) 데일리 미션 {d + 1}일차",
+                )
+
+            st.divider()
+
+            # --- children 입력 ---
+            for i in range(n_children):
+                ck = cks[i] if i < len(cks) else "?"
+                child = day["children"][i]
+                with st.expander(
+                    f"  child {i + 1}   ^key={ck}",
+                    expanded=False,
+                ):
+                    c1, c2 = st.columns([2, 1])
+                    with c1:
+                        child["description"] = st.text_input(
+                            "description",
+                            value=child.get("description", ""),
+                            key=f"dm_d{d}_c{i}_desc",
+                            placeholder=f"예) {d + 1}일차(승리 4회)",
+                        )
+                    with c2:
+                        child["goal_count"] = int(st.number_input(
+                            "goal_count",
+                            min_value=1,
+                            value=int(child.get("goal_count", 1)),
+                            step=1,
+                            key=f"dm_d{d}_c{i}_gcnt",
+                        ))
+
+                    cur_gkey = child.get("goal_type_key", "play:need_win")
+                    default_idx = goal_key_index.get(cur_gkey, 0)
+                    gsel = st.selectbox(
+                        "goal_type/%key",
+                        goal_opts,
+                        index=default_idx,
+                        key=f"dm_d{d}_c{i}_gkey_sel",
+                    )
+                    gdef = GOAL_TYPES[goal_opts.index(gsel)]
+                    child["goal_type_key"] = gdef["key"]
+                    param_vals = render_param_fields(
+                        gdef.get("params", []) or [],
+                        f"dm_d{d}_c{i}_gparam",
+                        items_list,
+                        dialog_groups,
+                    )
+                    child["goal_type_param1"] = param_vals[0] if param_vals else None
+
+                    rcat_col, rid_col, rqty_col = st.columns([1, 2, 1])
+                    with rcat_col:
+                        cat_options = ["(선택)"] + category_keys
+                        cur_cat = child.get("reward_category", "")
+                        cat_idx = cat_options.index(cur_cat) if cur_cat in cat_options else 0
+                        sel_cat = st.selectbox(
+                            "reward_category",
+                            cat_options,
+                            index=cat_idx,
+                            key=f"dm_d{d}_c{i}_rcat",
+                        )
+                        child["reward_category"] = "" if sel_cat == "(선택)" else sel_cat
+
+                    with rid_col:
+                        if child["reward_category"]:
+                            filtered = [it for it in items_list if it.get("category") == child["reward_category"]]
+                        else:
+                            filtered = list(items_list)
+                        if filtered:
+                            fmt = lambda it: f"{it['id']} | {it['name']} | {it.get('filter','')}"
+                            id_opts = ["(선택 안함)"] + [fmt(it) for it in filtered]
+                            cur_rid = int(child.get("reward_id") or 0)
+                            cur_label = "(선택 안함)"
+                            for it in filtered:
+                                if it["id"] == cur_rid:
+                                    cur_label = fmt(it)
+                                    break
+                            try:
+                                cur_idx = id_opts.index(cur_label)
+                            except ValueError:
+                                cur_idx = 0
+                            sel_id = st.selectbox(
+                                "reward_id",
+                                id_opts,
+                                index=cur_idx,
+                                key=f"dm_d{d}_c{i}_rid",
+                            )
+                            if sel_id == "(선택 안함)":
+                                child["reward_id"] = 0
+                            else:
+                                idx_in_filtered = id_opts.index(sel_id) - 1
+                                child["reward_id"] = int(filtered[idx_in_filtered]["id"])
+                        else:
+                            st.write("(해당 category 에 items 없음)")
+                            child["reward_id"] = 0
+
+                    with rqty_col:
+                        child["reward_qty"] = int(st.number_input(
+                            "reward_qty",
+                            min_value=1,
+                            value=int(child.get("reward_qty", 1) or 1),
+                            step=1,
+                            key=f"dm_d{d}_c{i}_rqty",
+                        ))
+
+    # --- 미리보기 ---
+    st.divider()
+    st.subheader("미리보기")
+    total_quest_rows = n_days * (1 + n_children)
+    st.caption(
+        f"parent_keys={parent_keys}, event_keys={event_keys}, "
+        f"quests 총 {total_quest_rows} 행, nday events {n_days} 행 + events.day {n_days} 행"
+    )
+
+    preview_rows: list[dict] = []
+    for d in range(n_days):
+        if d >= len(parent_keys):
+            continue
+        pk = parent_keys[d]
+        ek = event_keys[d]
+        cks = child_keys_matrix[d] if d < len(child_keys_matrix) else []
+        day = st.session_state.dm_days[d]
+        preview_rows.append({
+            "^key": pk,
+            "role": f"day{d + 1} parent",
+            "description": day.get("parent_description", ""),
+            "goal_type/type/%key": "reward_quest:ref_quest_ids",
+            "goal_type/type/%param1": "[]{" + ",".join(str(k) for k in cks) + "}",
+            "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+            "goal_count": n_children,
+            "event_^key": ek,
+        })
+        for i in range(n_children):
+            ck = cks[i] if i < len(cks) else None
+            c = day["children"][i]
+            preview_rows.append({
+                "^key": ck,
+                "role": f"day{d + 1} child{i + 1}",
+                "description": c.get("description", ""),
+                "goal_type/type/%key": c.get("goal_type_key", ""),
+                "goal_type/type/%param1": c.get("goal_type_param1", ""),
+                "count_type": "QUEST_COUNT_TYPE_SUM",
+                "goal_count": c.get("goal_count", 1),
+                "event_^key": ek,
+            })
+    if preview_rows:
+        st.dataframe(
+            pd.DataFrame(preview_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     # --- 저장 ---
     st.divider()
-    try:
-        event_key_int_check = int(event_key_str) if 'event_key_str' in dir() else None
-    except (ValueError, TypeError):
-        event_key_int_check = None
-
     save_disabled = (
-        parent_key_int is None
-        or goal_count_n == 0
+        first_parent_int is None
+        or n_days == 0
+        or n_children == 0
         or not daily_filter
-        or not parent_description
-        or not event_description
+        or any(not d.get("parent_description") for d in st.session_state.dm_days)
+        or any(not d.get("event_description") for d in st.session_state.dm_days)
     )
-    help_msgs = []
-    if parent_key_int is None:
-        help_msgs.append("parent ^key 가 정수여야 합니다.")
+    warnings = []
+    if first_parent_int is None:
+        warnings.append("첫 parent ^key 가 정수여야 합니다.")
     if not daily_filter:
-        help_msgs.append("$filter 를 선택해주세요.")
-    if not parent_description:
-        help_msgs.append("parent description 을 입력해주세요.")
-    if not event_description:
-        help_msgs.append("events.description 을 입력해주세요.")
-    for m in help_msgs:
+        warnings.append("$filter 를 선택해주세요.")
+    for d, day in enumerate(st.session_state.dm_days):
+        if not day.get("parent_description"):
+            warnings.append(f"{d + 1}일차 parent description 이 비어 있습니다.")
+        if not day.get("event_description"):
+            warnings.append(f"{d + 1}일차 events.description 이 비어 있습니다.")
+    for m in warnings:
         st.warning(m)
 
-    if st.button(
-        f"{1 + int(goal_count_n)}행 일괄 저장 (parent + child {int(goal_count_n)})",
-        type="primary",
-        disabled=save_disabled,
-        key="dm_save_btn",
-    ):
-        parent_row: dict = {
-            "^key": parent_key_int,
-            "$filter": daily_filter,
-            "category": "QUEST_CATEGORY_GENERAL",
-            "description": parent_description,
-            "start_timestamp": daily_start,
-            "end_timestamp": daily_end,
-            "reset_type": "QUEST_RESET_TYPE_DAILY",
-            "count_type": "QUEST_COUNT_TYPE_HIGHEST",
-            "goal_count": int(goal_count_n),
-            "goal_type/type/%key": "reward_quest:ref_quest_ids",
-            # goal_type/type/%param1 은 append_daily_set 이 child ^key 로 자동 생성
-        }
+    btn_label = (
+        f"{total_quest_rows}행 일괄 저장 "
+        f"(N_DAYS={n_days} × (parent + child {n_children}))"
+        f" + nday events {n_days}건"
+    )
 
-        child_rows: list[dict] = []
-        for i in range(int(goal_count_n)):
-            child = st.session_state.dm_children[i]
-            ck = child_keys[i]
-            child_dict: dict = {
-                "^key": ck,
+    if st.button(btn_label, type="primary", disabled=save_disabled, key="dm_save_btn"):
+        saved_days: list[dict] = []
+        failed_nday_days: list[int] = []
+        aborted_at: int | None = None
+
+        for d in range(n_days):
+            day = st.session_state.dm_days[d]
+            pk = parent_keys[d]
+            ek = event_keys[d]
+            cks = child_keys_matrix[d]
+
+            parent_row: dict = {
+                "^key": pk,
                 "$filter": daily_filter,
                 "category": "QUEST_CATEGORY_GENERAL",
-                "description": child.get("description", ""),
+                "description": day["parent_description"],
                 "start_timestamp": daily_start,
                 "end_timestamp": daily_end,
                 "reset_type": "QUEST_RESET_TYPE_DAILY",
-                "count_type": "QUEST_COUNT_TYPE_SUM",
-                "goal_count": int(child.get("goal_count", 1) or 1),
-                "goal_type/type/%key": child.get("goal_type_key") or None,
+                "count_type": "QUEST_COUNT_TYPE_HIGHEST",
+                "goal_count": n_children,
+                "goal_type/type/%key": "reward_quest:ref_quest_ids",
             }
-            p1 = child.get("goal_type_param1")
-            if p1:
-                child_dict["goal_type/type/%param1"] = p1
 
-            rid = int(child.get("reward_id") or 0)
-            if rid > 0:
-                child_dict["rewards/0/id"] = rid
-                child_dict["rewards/0/qty"] = int(child.get("reward_qty", 1) or 1)
-            child_rows.append(child_dict)
+            child_rows: list[dict] = []
+            for i in range(n_children):
+                c = day["children"][i]
+                ck = cks[i]
+                cd: dict = {
+                    "^key": ck,
+                    "$filter": daily_filter,
+                    "category": "QUEST_CATEGORY_GENERAL",
+                    "description": c.get("description", ""),
+                    "start_timestamp": daily_start,
+                    "end_timestamp": daily_end,
+                    "reset_type": "QUEST_RESET_TYPE_DAILY",
+                    "count_type": "QUEST_COUNT_TYPE_SUM",
+                    "goal_count": int(c.get("goal_count", 1) or 1),
+                    "goal_type/type/%key": c.get("goal_type_key") or None,
+                }
+                p1 = c.get("goal_type_param1")
+                if p1:
+                    cd["goal_type/type/%param1"] = p1
+                rid = int(c.get("reward_id") or 0)
+                if rid > 0:
+                    cd["rewards/0/id"] = rid
+                    cd["rewards/0/qty"] = int(c.get("reward_qty", 1) or 1)
+                child_rows.append(cd)
 
-        try:
-            rows_written = append_daily_set(quests_path, parent_row, child_rows)
-        except ValueError as e:
-            st.error(f"저장 실패 (파일 저장 전 검증 실패 — 롤백됨): {e}")
-            st.stop()
-        except Exception as e:
-            st.error(f"저장 실패: {e}")
-            st.stop()
+            # --- quests 저장 ---
+            try:
+                append_daily_set(quests_path, parent_row, child_rows)
+            except ValueError as e:
+                st.error(f"day {d + 1} quests 저장 실패 (검증 실패 — 이후 중단): {e}")
+                aborted_at = d + 1
+                break
+            except Exception as e:
+                st.error(f"day {d + 1} quests 저장 실패 (이후 중단): {e}")
+                aborted_at = d + 1
+                break
 
-        # quests 저장 성공 → nday_mission_events 저장
-        try:
-            event_key_int = int(event_key_str)
-        except (ValueError, TypeError):
-            event_key_int = None
-
-        nday_save_ok = False
-        if event_key_int is not None and nday_mission_events_path:
+            # --- nday 저장 ---
             event_dict_save = {
-                "^key": event_key_int,
-                "description": event_description,
+                "^key": ek,
+                "description": day["event_description"],
                 "start_timestamp": daily_start,
                 "end_timestamp": daily_end,
                 "mission_active_days": mission_active_days,
             }
             event_day_dict_save = {
-                "^key": event_key_int,
+                "^key": ek,
                 "day": 1,
-                "description": event_day_description,
-                "quest_ids": "[]{" + ",".join(str(k) for k in child_keys) + "}",
-                "finish_quest_id": parent_key_int,
+                "description": day["event_day_description"],
+                "quest_ids": "[]{" + ",".join(str(k) for k in cks) + "}",
+                "finish_quest_id": pk,
             }
+            nday_ok = True
             try:
-                append_nday_mission_event(nday_mission_events_path, event_dict_save, event_day_dict_save)
-                nday_save_ok = True
-            except ValueError as e:
-                st.error(f"nday_mission_events 저장 실패 (quests 는 이미 저장됨 — 수동 복구 필요): {e}")
+                append_nday_mission_event(
+                    nday_mission_events_path,
+                    event_dict_save,
+                    event_day_dict_save,
+                )
             except Exception as e:
-                st.error(f"nday_mission_events 저장 실패 (quests 는 이미 저장됨 — 수동 복구 필요): {e}")
+                st.warning(
+                    f"day {d + 1} nday_mission_events 저장 실패 (quests 는 이미 저장됨): {e}"
+                )
+                nday_ok = False
+                failed_nday_days.append(d + 1)
 
-        if nday_save_ok:
+            saved_days.append({"day": d + 1, "pk": pk, "ek": ek, "cks": cks, "nday_ok": nday_ok})
+            st.session_state.existing_keys.add(pk)
+            st.session_state.existing_keys.update(cks)
+
+        # --- 결과 요약 ---
+        if saved_days:
             st.success(
-                f"데일리 미션 저장 완료: parent ^key={parent_key_int}, "
-                f"child ^keys={child_keys}, 기입 row={rows_written} | "
-                f"events ^key={event_key_int} nday 저장 완료"
-            )
-        else:
-            st.success(
-                f"데일리 미션 저장 완료 (quests only): parent ^key={parent_key_int}, "
-                f"child ^keys={child_keys}, 기입 row={rows_written}"
+                f"저장 완료: {len(saved_days)}/{n_days} day. "
+                f"parent ^keys={[s['pk'] for s in saved_days]}, "
+                f"event ^keys={[s['ek'] for s in saved_days]}"
+                + (f" | nday 실패 day: {failed_nday_days}" if failed_nday_days else "")
+                + (f" | day {aborted_at} 에서 중단" if aborted_at else "")
             )
 
-        # 세션 갱신
-        st.session_state.existing_keys.add(parent_key_int)
-        st.session_state.existing_keys.update(child_keys)
-        # child 입력값 초기화 (다음 세트 준비)
-        st.session_state.dm_children = []
-        # R-09 cleanup
-        for k in (
-            "dm_parent_desc",
-            "dm_parent_key",
-            "_last_dm_filter",
-            "dm_goal_n",
-            "dm_event_key",
-            "dm_event_desc",
-            "dm_event_day_desc",
-            "_last_dm_event_group",
-        ):
-            if k in st.session_state:
-                del st.session_state[k]
-        for k in list(st.session_state.keys()):
-            if k.startswith("_dm_desc_auto_"):
-                del st.session_state[k]
-        st.cache_data.clear()
-        st.rerun()
+        # 전량 성공 시에만 입력 초기화
+        if len(saved_days) == n_days and not failed_nday_days and aborted_at is None:
+            st.session_state.dm_days = []
+            for k in ("dm_first_parent_key", "dm_n_days", "dm_n_children", "dm_mad"):
+                if k in st.session_state:
+                    del st.session_state[k]
+            # day-scoped 키도 정리
+            for k in list(st.session_state.keys()):
+                if k.startswith("dm_d") or k.startswith("_last_dm_"):
+                    del st.session_state[k]
+            st.cache_data.clear()
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------

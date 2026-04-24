@@ -35,6 +35,7 @@ goal_types:
       - label: key
         options:
           - PLAY_REPORT_KEY_KILL_COUNT
+          - PLAY_REPORT_KEY_ULTIMATE_DAMAGE
           - PLAY_REPORT_KEY_DAMAGE_SUM
           - PLAY_REPORT_KEY_BUFF_CARD_USED_COUNT
           - PLAY_REPORT_KEY_DEFAULT_SKILL_USAGE_COUNT
