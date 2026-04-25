@@ -748,15 +748,8 @@ def render_daily_mission_form(
         st.session_state.dm_days, n_days, n_children
     )
 
-    # --- mission_active_days (전역) ---
-    mission_active_days = int(st.number_input(
-        "mission_active_days (events 전체 공통)",
-        min_value=0,
-        value=int(st.session_state.get("dm_mad", 0)),
-        step=1,
-        key="dm_mad",
-        help="단일일 이벤트=0, 장기 이벤트=일수",
-    ))
+    # mission_active_days = 0 고정 (실 데이터 패턴: 데일리 미션 이벤트는 항상 단일일)
+    mission_active_days = 0
 
     st.divider()
 
@@ -1128,7 +1121,7 @@ def render_daily_mission_form(
         # 전량 성공 시에만 입력 초기화
         if len(saved_days) == n_days and not failed_nday_days and aborted_at is None:
             st.session_state.dm_days = []
-            for k in ("dm_first_parent_key", "dm_n_days", "dm_n_children", "dm_mad"):
+            for k in ("dm_first_parent_key", "dm_n_days", "dm_n_children"):
                 if k in st.session_state:
                     del st.session_state[k]
             # day-scoped 키도 정리
